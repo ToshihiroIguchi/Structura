@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 library(shiny)
 library(shinyjs)
 library(DT)
@@ -24,32 +25,49 @@ ui <- fluidPage(
   tags$style(HTML(
     ".htDimmed { background-color: #f0f0f0 !important; color: #888 !important; }"
   )),
+  # rHandsontable によってキャンセルされたドラッグイベントを再有効化
+  tags$script(HTML(
+    "$(document).off('dragenter dragover drop');"
+  )),
   tabsetPanel(
     tabPanel("Data",
              h4("Uploaded Data"),
              DTOutput("datatable")
     ),
-    tabPanel("Filtered Data",
+    tabPanel("Filtered",
              h4("Filtered Data"),
              uiOutput("log_transform_ui"),
              uiOutput("display_column_ui"),
              tableOutput("filtered_table")
     ),
-    tabPanel("Checkbox Matrix",
-             h4("Checkbox Matrix"),
+    tabPanel("Equations",
+             h4("Measurement Model"),
              rHandsontableOutput("input_table"),
              actionButton("add_row", "Add Row"),
              tags$hr(),
-             rHandsontableOutput("checkbox_matrix")
+             h4("Structural Model"),
+             rHandsontableOutput("checkbox_matrix"),
+             tags$hr(),
+             h4("Lavaan Model"),
+             verbatimTextOutput("lavaan_model")
     )
   )
 )
 
 server <- function(input, output, session) {
-  # CSV アップロード
+  # CSV アップロード用モーダル
   showModal(modalDialog(
     title = "Upload CSV File",
-    fileInput("datafile", "Choose CSV File", accept = ".csv"),
+    fileInput(
+      "datafile",
+      "Choose CSV File",
+      accept = c(
+        ".csv",
+        "text/csv",
+        "text/comma-separated-values",
+        "application/csv"
+      )
+    ),
     easyClose = FALSE, footer = NULL
   ))
   data <- reactiveVal(NULL)
@@ -61,17 +79,20 @@ server <- function(input, output, session) {
   # Data タブ
   output$datatable <- renderDT({
     req(data())
-    datatable(data(), filter = "top", options = list(pageLength = 30, autoWidth = TRUE), rownames = FALSE)
+    datatable(data(), filter = "top",
+              options = list(pageLength = 30, autoWidth = TRUE),
+              rownames = FALSE)
   }, server = FALSE)
 
-  # Filtered Data 用 UI & 処理
+  # Filteredタブ 用 UI & 処理
   output$log_transform_ui <- renderUI({
     req(data())
     df <- data()
     nums <- names(df)[sapply(df, is.numeric)]
     valid <- nums[sapply(df[nums], function(x) min(x, na.rm = TRUE) > 0)]
     if (!length(valid)) return(NULL)
-    checkboxGroupInput("log_columns", "Select columns to log-transform:", choices = valid, inline = TRUE)
+    checkboxGroupInput("log_columns", "Select columns to log-transform:",
+                       choices = valid, inline = TRUE)
   })
   processed_data <- reactive({
     req(data())
@@ -99,82 +120,117 @@ server <- function(input, output, session) {
     orig <- names(data())[sapply(data(), is.numeric)]
     logs <- if (!is.null(input$log_columns)) paste0("log_", input$log_columns) else NULL
     default <- intersect(c(orig, logs), allc)
-    checkboxGroupInput("display_columns", "Select columns to display:", choices = allc, selected = default, inline = TRUE)
+    checkboxGroupInput("display_columns", "Select columns to display:",
+                       choices = allc, selected = default, inline = TRUE)
   })
   output$filtered_table <- renderTable({
     df <- processed_data(); req(df)
-    if (!is.null(input$display_columns)) df <- df[, intersect(input$display_columns, names(df)), drop = FALSE]
+    if (!is.null(input$display_columns))
+      df <- df[, intersect(input$display_columns, names(df)), drop = FALSE]
     df
   }, striped = TRUE, hover = TRUE)
 
-  # input_table 初期化・編集
+  # Measurement Model
   input_table_data <- reactiveVal(NULL)
   observeEvent(input$display_columns, {
     df <- processed_data(); req(df)
-    items <- input$display_columns %||% names(df)
-    init <- data.frame(matrix(ncol = 3 + length(items), nrow = 1), stringsAsFactors = FALSE)
-    colnames(init) <- c("Name", "Converted", "Symbol", items)
-    init$Name      <- ""
-    init$Converted <- ""
-    init$Symbol    <- "=~"
-    for (col in items) init[[col]] <- FALSE
+    indicators <- input$display_columns %||% names(df)
+    init <- data.frame(matrix(ncol = 3 + length(indicators), nrow = 1), stringsAsFactors = FALSE)
+    colnames(init) <- c("Latent", "Indicator", "Operator", indicators)
+    init$Latent    <- ""
+    init$Indicator <- ""
+    init$Operator  <- "=~"
+    for (col in indicators) init[[col]] <- FALSE
     input_table_data(init)
   }, ignoreNULL = FALSE)
   output$input_table <- renderRHandsontable({
     df <- input_table_data(); req(df)
     rh <- rhandsontable(df, readOnly = FALSE, rowHeaders = FALSE, colHeaders = colnames(df))
-    rh <- hot_col(rh, "Name", readOnly = FALSE)
-    rh <- hot_col(rh, "Converted", readOnly = TRUE)
-    rh <- hot_col(rh, "Symbol", readOnly = TRUE)
+    rh <- hot_col(rh, "Latent",    readOnly = FALSE)
+    rh <- hot_col(rh, "Indicator", readOnly = TRUE)
+    rh <- hot_col(rh, "Operator",  readOnly = TRUE)
     for (nm in colnames(df)[4:ncol(df)]) rh <- hot_col(rh, nm, type = "checkbox", readOnly = FALSE)
     rh
   })
   observeEvent(input$input_table, {
     tbl <- hot_to_r(input$input_table); req(tbl)
-    bases <- vapply(tbl$Name, function(x) {
-      s <- gsub("\\s+", "_", trimws(as.character(x)))
-      make.names(s, unique = FALSE)
-    }, FUN.VALUE = "")
-    exist <- names(processed_data())
-    convs_all <- make.unique(c(exist, bases))
-    tbl$Converted <- tail(convs_all, length(bases))
+    # gsub() による手動置換を廃止し、直接 make.names() で有効な名前に変換
+    bases <- make.names(as.character(tbl$Latent), unique = FALSE)
+    exist      <- names(processed_data())
+    convs_all  <- make.unique(c(exist, bases))
+    tbl$Indicator <- tail(convs_all, length(bases))
     input_table_data(tbl)
   })
   observeEvent(input$add_row, {
     df <- input_table_data(); req(df)
     nr <- df[1, , drop = FALSE]
-    nr$Name      <- ""
-    nr$Converted <- ""
-    nr$Symbol    <- "=~"
-    for (col in setdiff(colnames(nr), c("Name", "Converted", "Symbol"))) {
+    nr$Latent    <- ""
+    nr$Indicator <- ""
+    nr$Operator  <- "=~"
+    for (col in setdiff(colnames(nr), c("Latent","Indicator","Operator")))
       nr[[col]] <- FALSE
-    }
     input_table_data(rbind(df, nr))
   })
 
-  # Checkbox Matrix 表示修正
+  # Structural Model
   output$checkbox_matrix <- renderRHandsontable({
     df <- processed_data(); req(df)
-    base <- input$display_columns %||% names(df)
-    convs <- setdiff(na.omit(unique(input_table_data()$Converted)), "")
-    items <- unique(c(base, convs))
+    dependents <- input$display_columns %||% names(df)
+    convs <- setdiff(na.omit(unique(input_table_data()$Indicator)), "")
+    items <- unique(c(dependents, convs))
     if (length(items) == 0) return(NULL)
     mat <- data.frame(
-      Item   = items,
-      Symbol = rep("~", length(items)),
+      Dependent = items,
+      Operator  = rep("~", length(items)),
       stringsAsFactors = FALSE
     )
     for (col in items) mat[[col]] <- FALSE
 
     rh <- rhandsontable(mat, readOnly = FALSE, rowHeaders = FALSE, colHeaders = colnames(mat))
-    rh <- hot_col(rh, "Item", readOnly = TRUE)
-    rh <- hot_col(rh, "Symbol", readOnly = TRUE)
+    rh <- hot_col(rh, "Dependent", readOnly = TRUE)
+    rh <- hot_col(rh, "Operator",  readOnly = TRUE)
     for (col in items) rh <- hot_col(rh, col, type = "checkbox", readOnly = FALSE)
     for (i in seq_along(items)) {
       col_idx <- match(items[i], colnames(mat))
       rh <- hot_cell(rh, row = i, col = col_idx, readOnly = TRUE)
     }
     rh
+  })
+
+  # Lavaan モデル文字列を生成して表示
+  output$lavaan_model <- renderText({
+    req(input$input_table, input$checkbox_matrix)
+    # Measurement Equations (測定方程式)
+    meas <- hot_to_r(input$input_table)
+    meas_lines <- lapply(seq_len(nrow(meas)), function(i) {
+      latent <- meas$Latent[i]
+      if (latent == "") return(NULL)
+      latent_nm <- make.names(latent)
+      vars <- names(meas)[4:ncol(meas)]
+      inds <- vars[which(as.logical(meas[i, vars]))]
+      if (length(inds) == 0) return(NULL)
+      paste0(latent_nm, " =~ ", paste(inds, collapse = " + "))
+    })
+    # Structural Equations (構造方程式)
+    struc <- hot_to_r(input$checkbox_matrix)
+    struc_lines <- lapply(seq_len(nrow(struc)), function(i) {
+      dep <- struc$Dependent[i]
+      if (dep == "") return(NULL)
+      dep_nm <- make.names(dep)
+      preds <- names(struc)[3:ncol(struc)]
+      psel <- preds[which(as.logical(struc[i, preds]))]
+      if (length(psel) == 0) return(NULL)
+      paste0(dep_nm, " ~ ", paste(psel, collapse = " + "))
+    })
+    # Combine with comments
+    lines <- c(
+      "# Measurement Equations",
+      unlist(meas_lines),
+      "",  # 空行
+      "# Structural Equations",
+      unlist(struc_lines)
+    )
+    paste(lines, collapse = "\n")
   })
 }
 
