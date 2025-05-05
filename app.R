@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ---------------------------------------------------------------
-# Structura Shiny app – compact Fit Indices build (2025-05-05)
+# Structura Shiny app – with semDiagram integration (2025-05-05)
 # ---------------------------------------------------------------
 options(
   shiny.fullstacktrace = TRUE,   # フルスタックトレースを有効化
@@ -13,6 +13,8 @@ library(DT)
 library(rhandsontable)
 library(readflex)
 library(lavaan)
+library(DiagrammeR)
+library(semDiagram)
 
 `%||%` <- function(x, y) if (!is.null(x)) x else y
 Sys.setlocale("LC_CTYPE", "ja_JP.UTF-8")
@@ -26,7 +28,7 @@ loadDataOnce <- function(fileInput){
 # ──────────────────── 2. UI ──────────────────────────────────────────
 ui <- fluidPage(
   useShinyjs(),
-  title = "Structura (Compact Fit Indices)",
+  title = "Structura (with semDiagram)",
   tags$style(HTML(".htDimmed{background:#f0f0f0!important;color:#888!important;}")),
   tags$script(HTML("$(document).off('dragenter dragover drop');")),
   tabsetPanel(
@@ -49,7 +51,11 @@ ui <- fluidPage(
              h4("Lavaan Model"),
              verbatimTextOutput("lavaan_model"),
              h4("Fit Indices"),
-             DTOutput("fit_indices"))
+             DTOutput("fit_indices"),
+             tags$hr(),
+             h4("Path Diagram"),
+             grVizOutput("sem_plot")
+    )
   )
 )
 
@@ -77,7 +83,7 @@ server <- function(input, output, session){
               rownames = FALSE)
   }, server = FALSE)
 
-  # 3-3. Filtered タブ --------------------------------------------------
+  # 3-3. Filtered タブ
   output$log_transform_ui <- renderUI({
     req(data())
     nums  <- names(data())[sapply(data(), is.numeric)]
@@ -93,16 +99,12 @@ server <- function(input, output, session){
 
   processed_data <- reactive({
     req(data())
-
-    ## 行フィルタ（DT のチェック行）
     idx <- as.numeric(unlist(input$datatable_rows_all))
     if (!length(idx)) idx <- seq_len(nrow(data()))
     df  <- data()[idx, , drop = FALSE]
-
-    # factor → character
     df[] <- lapply(df, function(x) if (is.factor(x)) as.character(x) else x)
 
-    # ---- 対数変換 -----------------------------------------------------
+    # 対数変換
     if (!is.null(input$log_columns)){
       for (col in input$log_columns){
         df[[paste0("log_", col)]] <- log10(df[[col]])
@@ -110,11 +112,10 @@ server <- function(input, output, session){
       }
     }
 
-    # ---- 文字列 → ダミー化 ------------------------------------------
+    # 文字列→ダミー化
     chars <- names(df)[vapply(df, is.character, logical(1))]
     is_multi <- vapply(df[chars], function(x){
-      u <- unique(x)
-      length(u) > 1 && length(u) < nrow(df)
+      u <- unique(x); length(u) > 1 && length(u) < nrow(df)
     }, logical(1))
 
     multi <- chars[is_multi]
@@ -125,7 +126,6 @@ server <- function(input, output, session){
         as.data.frame(mm, check.names = TRUE)
       )
     }
-
     names(df) <- make.names(names(df), unique = TRUE)
     df
   })
@@ -154,9 +154,8 @@ server <- function(input, output, session){
     df
   }, striped = TRUE, hover = TRUE)
 
-  # 3-4. Measurement Model 入力 ----------------------------------------
+  # 3-4. Measurement Model 入力
   input_table_data <- reactiveVal(NULL)
-
   observeEvent(input$display_columns, {
     inds <- as.character(input$display_columns %||% names(processed_data()))
     init <- data.frame(
@@ -177,9 +176,7 @@ server <- function(input, output, session){
     rh <- hot_col(rh, "Latent",    readOnly = FALSE)
     rh <- hot_col(rh, "Indicator", readOnly = TRUE)
     rh <- hot_col(rh, "Operator",  readOnly = TRUE)
-    for (nm in colnames(df)[4:ncol(df)]) {
-      rh <- hot_col(rh, nm, type = "checkbox")
-    }
+    for (nm in colnames(df)[4:ncol(df)]) rh <- hot_col(rh, nm, type = "checkbox")
     rh
   })
 
@@ -199,7 +196,7 @@ server <- function(input, output, session){
     input_table_data(rbind(df, nr))
   })
 
-  # 3-5. Structural Model 入力 -----------------------------------------
+  # 3-5. Structural Model 入力
   output$checkbox_matrix <- renderRHandsontable({
     df <- processed_data(); req(df)
     deps  <- as.character(input$display_columns %||% names(df))
@@ -212,23 +209,15 @@ server <- function(input, output, session){
     rh <- hot_col(rh, "Dependent", readOnly = TRUE)
     rh <- hot_col(rh, "Operator",  readOnly = TRUE)
     for (col in items) rh <- hot_col(rh, col, type = "checkbox")
-    for (i in seq_along(items)) {
-      rh <- hot_cell(
-        rh,
-        row = i,
-        col = match(items[i], colnames(mat)),
-        readOnly = TRUE
-      )
-    }
+    for (i in seq_along(items)) rh <- hot_cell(rh, row = i, col = match(items[i], colnames(mat)), readOnly = TRUE)
     rh
   })
 
-  # 3-6. lavaan モデル文字列 -------------------------------------------
+  # 3-6. lavaan モデル文字列
   lavaan_model_str <- reactive({
     req(input$input_table, input$checkbox_matrix)
-
     meas <- as.data.frame(hot_to_r(input$input_table))
-    mlines <- lapply(seq_len(nrow(meas)), function(i) {
+    meas_lines <- lapply(seq_len(nrow(meas)), function(i) {
       lt <- meas$Latent[i]; if (lt == "") return()
       vars <- names(meas)[4:ncol(meas)]
       flag <- as.logical(unlist(meas[i, vars]))
@@ -236,9 +225,8 @@ server <- function(input, output, session){
       if (!length(inds)) return()
       paste0(lt, " =~ ", paste(inds, collapse = " + "))
     })
-
     struc <- as.data.frame(hot_to_r(input$checkbox_matrix))
-    slines <- lapply(seq_len(nrow(struc)), function(i) {
+    struc_lines <- lapply(seq_len(nrow(struc)), function(i) {
       dp <- struc$Dependent[i]; if (dp == "") return()
       preds <- names(struc)[3:ncol(struc)]
       flag  <- as.logical(unlist(struc[i, preds]))
@@ -246,8 +234,7 @@ server <- function(input, output, session){
       if (!length(ps)) return()
       paste0(dp, " ~ ", paste(ps, collapse = " + "))
     })
-
-    unlist(c(mlines, slines))
+    unlist(c(meas_lines, struc_lines))
   })
 
   output$lavaan_model <- renderText({
@@ -256,81 +243,34 @@ server <- function(input, output, session){
     paste(ln, collapse = "\n")
   })
 
-  # 3-7. 適合度指標 -----------------------------------------------------
-  output$fit_indices <- renderDT({
+  # 3-7. Fit Indices
+  fit_model <- reactive({
     ln <- lavaan_model_str()
-    if (!length(ln)) {
-      return(datatable(
-        data.frame(Message = "Model not defined"),
-        rownames = FALSE,
-        options = list(dom = 't')
-      ))
-    }
+    req(length(ln) > 0)
+    sem(paste(ln, collapse = "\n"), data = processed_data(), parser = "old")
+  })
 
-    fit <- tryCatch(
-      sem(
-        paste(ln, collapse = "\n"),
-        data   = processed_data(),
-        parser = "old"
-      ),
-      error = identity
-    )
-
-    if (inherits(fit, "error")) {
-      return(datatable(
-        data.frame(Error = fit$message),
-        rownames = FALSE,
-        options = list(dom = 't')
-      ))
-    }
-
-    # Fit Indices 計算
-    ms   <- fitMeasures(
-      fit,
-      c("pvalue", "srmr", "rmsea", "aic", "bic", "gfi", "agfi", "nfi", "cfi")
-    )
+  output$fit_indices <- renderDT({
+    fit <- fit_model()
+    ms   <- fitMeasures(fit, c("pvalue","srmr","rmsea","aic","bic","gfi","agfi","nfi","cfi"))
     vals <- round(as.numeric(ms), 3)
     names(vals) <- names(ms)
-
-    # 閾値設定
-    thr <- c(
-      pvalue = 0.05,
-      srmr   = 0.08,
-      rmsea  = 0.06,
-      gfi    = 0.90,
-      agfi   = 0.90,
-      nfi    = 0.90,
-      cfi    = 0.90
-    )
-
-    fmt <- function(idx, v) {
-      ok <- switch(
-        idx,
-        pvalue = v >= thr["pvalue"],
-        srmr   = v <= thr["srmr"],
-        rmsea  = v <= thr["rmsea"],
-        gfi    = v >= thr["gfi"],
-        agfi   = v >= thr["agfi"],
-        nfi    = v >= thr["nfi"],
-        cfi    = v >= thr["cfi"],
-        TRUE
-      )
-      if (is.na(v)) "NA"
-      else if (!ok) sprintf('<span style="color:red;">%.3f</span>', v)
-      else sprintf('%.3f', v)
+    thr  <- c(pvalue=.05, srmr=.08, rmsea=.06, gfi=.90, agfi=.90, nfi=.90, cfi=.90)
+    fmt  <- function(idx,v){
+      ok <- switch(idx,
+                   pvalue=v>=thr["pvalue"], srmr=v<=thr["srmr"], rmsea=v<=thr["rmsea"],
+                   gfi=v>=thr["gfi"], agfi=v>=thr["agfi"], nfi=v>=thr["nfi"], cfi=v>=thr["cfi"], TRUE)
+      if(is.na(v)) "NA" else if(!ok) sprintf('<span style="color:red;">%.3f</span>',v) else sprintf('%.3f',v)
     }
-
     html_vals <- mapply(fmt, names(vals), vals, USE.NAMES = FALSE)
-
-    tbl <- as.data.frame(t(html_vals), stringsAsFactors = FALSE)
+    tbl       <- as.data.frame(t(html_vals), stringsAsFactors = FALSE)
     colnames(tbl) <- names(vals)
+    datatable(tbl, escape = FALSE, rownames = FALSE, options = list(dom = 't'))
+  })
 
-    datatable(
-      tbl,
-      escape  = FALSE,
-      rownames= FALSE,
-      options = list(dom = 't')
-    )
+  # 3-8. Path Diagram
+  output$sem_plot <- renderGrViz({
+    semDiagram(fit_model())
   })
 }
 
