@@ -63,6 +63,9 @@ Build and run with Docker:
 docker build -t structura .
 docker run --rm -p 3838:3838 structura
 ```
+## Image
+<br>
+<img src="image.png"/>
 
 ## License
 
