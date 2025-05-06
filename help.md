@@ -53,4 +53,3 @@ Metrics breaching recommended thresholds (e.g., SRMR > 0.08) are highlighted in 
 
 ---
 
-For further assistance, consult the `README.md` on GitHub or reach out to the Structura development team.
