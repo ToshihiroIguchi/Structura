@@ -349,6 +349,7 @@ server <- function(input, output, session) {
     if (length(ln) == 0) return(NULL)
     sem(paste(ln, collapse = "\n"),
         data          = processed_data(),
+        fixed.x = FALSE,
         parser        = "old",     # Japanese variable names
         meanstructure = TRUE)
   })
