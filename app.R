@@ -1,153 +1,165 @@
-
 # -*- coding: utf-8 -*-
 # ---------------------------------------------------------------
 # Structura – Structural Insights, Simplified
-# 共分散構造分析 Shinyアプリ（平均構造対応・ロゴ組込み・コメント強化）
+# Shiny app for Structural Equation Modeling with mean structures,
+# embedded logo, and enhanced comments
 # ---------------------------------------------------------------
 options(
-  shiny.fullstacktrace = TRUE,   # エラー時にフルスタック
-  shiny.reactlog       = TRUE    # reactlog 可視化
+  shiny.fullstacktrace = TRUE,
+  shiny.reactlog       = TRUE
 )
 
-# ---- ライブラリ --------------------------------------------------
-library(shiny)        # Webアプリ基盤
-library(shinyjs)      # JS操作
-library(DT)           # DataTables
-library(rhandsontable) # Handsontable
-library(readflex)     # 高速 CSV 読み込み
-library(lavaan)       # SEM 本体
-library(DiagrammeR)   # グラフ描画
-library(semDiagram)   # Path 図
-library(ggplot2)      # 相関ヒートマップ
-library(reshape2)     # データ整形
+# ---- Libraries --------------------------------------------------
+library(shiny)          # Shiny framework
+library(shinyjs)        # JavaScript integration
+library(DT)             # DataTables
+library(rhandsontable)  # Handsontable
+library(readflex)       # Fast CSV reading
+library(lavaan)         # SEM engine
+library(DiagrammeR)     # Graph rendering
+library(semDiagram)     # Path diagrams
+library(ggplot2)        # Plotting
+library(reshape2)       # Data reshaping
+library(markdown)       # includeMarkdown()
 
 `%||%` <- function(x, y) if (!is.null(x)) x else y
-Sys.setlocale("LC_CTYPE", "ja_JP.UTF-8") # UTF-8 固定
+Sys.setlocale("LC_CTYPE", "ja_JP.UTF-8")  # Ensure UTF-8 locale
 
-# ---- 0. 近似式出力関数 ------------------------------------------
-lavaan_to_equations <- function(fit, standardized = TRUE, digits = 3){
-  pe <- parameterEstimates(fit, standardized = standardized, remove.def = TRUE) #:contentReference[oaicite:9]{index=9}
-  build <- function(op){
-    eq <- pe[pe$op == op, ]
-    split(eq, eq$lhs)
-  }
-  eq_lines <- function(lst, sep){
-    unlist(lapply(names(lst), function(lhs){
-      df <- lst[[lhs]]
+# ---- Function to build approximation equations -----------------
+lavaan_to_equations <- function(fit, standardized = TRUE, digits = 3) {
+  pe <- parameterEstimates(fit, standardized = standardized, remove.def = TRUE)
+  build_eq <- function(op) split(pe[pe$op == op, ], pe$lhs[pe$op == op])
+  format_lines <- function(lst, sep) {
+    unlist(lapply(names(lst), function(lhs) {
+      df  <- lst[[lhs]]
       rhs <- paste0(round(df$est, digits), "*", df$rhs)
       paste(lhs, sep, paste(rhs, collapse = " + "))
     }))
   }
-  c(eq_lines(build("=~"), "=~"), eq_lines(build("~"), "~"))
+  c(format_lines(build_eq("=~"), "=~"),
+    format_lines(build_eq("~"),  "~"))
 }
 
-# ---- 1. 読み込みヘルパ -------------------------------------------
-loadDataOnce <- function(fileInput){
+# ---- Helper for single-time data loading -----------------------
+loadDataOnce <- function(fileInput) {
   req(fileInput)
   readflex(fileInput$datapath, stringsAsFactors = FALSE)
 }
 
-# ---- 2. UI -------------------------------------------------------
+# ---- UI Definition ---------------------------------------------
 ui <- fluidPage(
   useShinyjs(),
 
-  # ロゴを右上に固定配置
+  # ---------- global styles ----------
   tags$head(
-    tags$link(rel="icon", type="image/png", href="logo.png"),
+    tags$link(rel = "icon", type = "image/png", href = "logo.png"),
     tags$style(HTML("
-      #app-logo{position:absolute; top:8px; right:16px;}
-      .modal-header{background:#1e90ff; color:white;}
-      .modal-title{font-weight:bold;}
+      #app-logo { position: absolute; top: 8px; right: 16px; }
+      .modal-header { background: #1e90ff; color: white; }
+      .modal-title  { font-weight: bold; }
+      /* grey-out ANY read-only cell */
+      .htDimmed     { background-color: #d9d9d9 !important; color: #777 !important; }
     "))
   ),
-  div(id="app-logo",
-      img(src="logo.png", height=40,
-          title="Structural Insights, Simplified")
-  ),
+
+  # ---------- app logo ----------
+  div(id = "app-logo",
+      img(src = "logo.png", height = 40,
+          title = "Structural Insights, Simplified")),
 
   title = "Structura",
 
+  # ---------- top-level tabs ----------
   tabsetPanel(
+    ## ---- Data Tab ----
     tabPanel("Data",
              h4("Uploaded Data"),
              DTOutput("datatable")
     ),
 
+    ## ---- Filtered Data Tab ----
     tabPanel("Filtered",
              h4("Filtered Data"),
              uiOutput("log_transform_ui"),
              uiOutput("display_column_ui"),
              DTOutput("filtered_table"),
              tags$hr(),
-             h4("Correlation"),
-             plotOutput("corr_plot", height = "400px")
+             h4("Correlation Matrix"),
+             DTOutput("corr_matrix")
     ),
 
-    tabPanel("Model",          # <-- Equations -> Model
+    ## ---- Model Tab ----
+    tabPanel("Model",
              fluidRow(
-               # --- 左列: モデル定義 ---------------------------------------
-               column(
-                 width = 7,
-                 h4("Measurement"),
-                 rHandsontableOutput("input_table"),
-                 actionButton("add_row", "Add Row", class = "btn btn-primary"),
-                 tags$hr(),
-                 h4("Structural"),
-                 rHandsontableOutput("checkbox_matrix"),
-                 tags$hr(),
-                 h4("lavaan Syntax"),
-                 verbatimTextOutput("lavaan_model")
+               column(width = 7,
+                      h4("Measurement Model"),
+                      rHandsontableOutput("input_table"),
+                      actionButton("add_row", "Add Row", class = "btn btn-primary"),
+                      tags$hr(),
+                      h4("Structural Model"),
+                      rHandsontableOutput("checkbox_matrix"),
+                      tags$hr(),
+                      h4("lavaan Syntax"),
+                      verbatimTextOutput("lavaan_model")
                ),
-               # --- 右列: 結果と図 ----------------------------------------
-               column(
-                 width = 5,
-                 h4("Fit Indices"),
-                 DTOutput("fit_indices"),
-                 h4("Approx. Equations"),
-                 verbatimTextOutput("approx_eq"),
-                 tags$details(
-                   tags$summary("Full Summary / Estimates"),
-                   verbatimTextOutput("fit_summary"),
-                   DTOutput("param_tbl")
-                 ),
-                 h4("Path Diagram"),
-                 div(style="max-height:45vh; overflow:auto; border:1px solid #ccc;",
-                     uiOutput("sem_plot_ui"))
+               column(width = 5,
+                      h4("Fit Indices"),
+                      DTOutput("fit_indices"),
+                      h4("Approximate Equations"),
+                      verbatimTextOutput("approx_eq"),
+                      tags$hr(),
+                      h4("Path Diagram"),
+                      div(style = "max-height:45vh; overflow:auto; border:1px solid #ccc;",
+                          uiOutput("sem_plot_ui"))
                )
              )
+    ),
+
+    ## ---- Details Tab ----
+    tabPanel("Details",
+             h4("Model Summary"),
+             verbatimTextOutput("fit_summary"),
+             tags$hr(),
+             h4("Parameter Estimates"),
+             DTOutput("param_tbl")
+    ),
+
+    ## ---- Help Tab ----
+    tabPanel("Help",
+             includeMarkdown("help.md")  # <-- drop help.md beside app.R
     )
   )
 )
 
-# ---- 3. Server ----------------------------------------------------
-server <- function(input, output, session){
+# ---- Server Logic ----------------------------------------------
+server <- function(input, output, session) {
 
-  # --- 3-1. CSV or Sample 選択モーダル -----------------------------
-  showModal(modalDialog(
-    title = span(icon("upload"), " Load Data"),
-    tags$style(HTML(".btn-file{background:#28a745; color:white;}")),
-    fileInput("datafile", NULL,
-              buttonLabel = "Browse...",
-              placeholder = "Upload CSV",
-              accept = c(".csv","text/csv","application/csv")),
-    tags$hr(),
-    radioButtons("sample_ds", "Or choose a demo set:",
-                 choices = c("None","HolzingerSwineford1939",
-                             "PoliticalDemocracy","Demo.growth",
-                             "Demo.twolevel","FacialBurns"),
-                 inline = FALSE),
-    easyClose = FALSE, footer = NULL
-  ))
+  # ---------- data-loading modal ----------
+  showModal(
+    modalDialog(
+      title = span(icon("upload"), "Load Data"),
+      tags$style(HTML(".btn-file { background:#28a745; color:white; }")),
+      fileInput("datafile", NULL,
+                buttonLabel = "Browse…",
+                placeholder  = "Upload CSV",
+                accept = c(".csv", "text/csv", "application/csv")),
+      tags$hr(),
+      radioButtons("sample_ds", "Or choose a demo dataset:",
+                   choices = c("None", "HolzingerSwineford1939",
+                               "PoliticalDemocracy", "Demo.growth",
+                               "Demo.twolevel", "FacialBurns")),
+      easyClose = FALSE,
+      footer    = NULL
+    )
+  )
 
-  # --- 3-2. データ読み込みリアクティブ -------------------------------
+  # ---------- dataset store ----------
   data <- reactiveVal(NULL)
-
   observeEvent(input$datafile, {
     data(loadDataOnce(input$datafile))
     updateRadioButtons(session, "sample_ds", selected = "None")
     removeModal()
   })
-
   observeEvent(input$sample_ds, {
     req(input$sample_ds != "None")
     ds <- switch(input$sample_ds,
@@ -160,177 +172,165 @@ server <- function(input, output, session){
     removeModal()
   })
 
-  # --- 3-3. DataTable (read-only) -----------------------------------
+  # ---------- raw data table ----------
   output$datatable <- renderDT({
     req(data())
-    datatable(data(), filter="top",
-              editable = FALSE,                             # read-only:contentReference[oaicite:10]{index=10}
+    datatable(data(), filter = "top", editable = FALSE,
               options = list(pageLength = 30, autoWidth = TRUE),
               rownames = FALSE)
   }, server = FALSE)
 
-  # --- 3-4. Filter UI ----------------------------------------------
+  # ---------- log-transform UI ----------
   output$log_transform_ui <- renderUI({
     req(data())
-    nums <- names(data())[sapply(data(), is.numeric)]
+    nums  <- names(data())[sapply(data(), is.numeric)]
     valid <- nums[sapply(data()[nums], function(x) min(x, na.rm = TRUE) > 0)]
     if (!length(valid)) return()
-    checkboxGroupInput("log_columns", "Log-transform columns:",
+    checkboxGroupInput("log_columns", "Log-transform columns (log10):",
                        choices = valid, inline = TRUE)
   })
 
-  # --- 3-5. 加工データ ----------------------------------------------
+  # ---------- processed data ----------
   processed_data <- reactive({
     req(data())
     idx <- as.numeric(unlist(input$datatable_rows_all))
     if (!length(idx)) idx <- seq_len(nrow(data()))
     df <- data()[idx, , drop = FALSE]
+    df[] <- lapply(df, function(x) if (is.factor(x)) as.character(x) else x)
 
-    # factor -> character
-    df[] <- lapply(df, \(x) if (is.factor(x)) as.character(x) else x)
-
-    # log10 transform
-    if (!is.null(input$log_columns))
-      for (col in input$log_columns){
+    # log10 transform (common log)
+    if (!is.null(input$log_columns)) {
+      for (col in input$log_columns) {
         df[[paste0("log_", col)]] <- log10(df[[col]])
         df[[col]] <- NULL
       }
+    }
 
-    # one-hot encode character variables
-    chars  <- names(df)[vapply(df, is.character, logical(1))]
-    multi  <- chars[vapply(df[chars],
-                           \(x){u<-unique(x); length(u)>1 && length(u)<nrow(df)},
-                           logical(1))]
-    if (length(multi)){
+    # one-hot encode low-cardinality character vars
+    chars <- names(df)[vapply(df, is.character, logical(1))]
+    multi <- chars[vapply(df[chars], function(x) {
+      u <- unique(x); length(u) > 1 && length(u) < nrow(df)
+    }, logical(1))]
+    if (length(multi)) {
       mm <- model.matrix(~ . - 1, data = df[multi])
       df <- cbind(df[setdiff(names(df), multi)],
                   as.data.frame(mm, check.names = TRUE))
     }
-
     names(df) <- make.names(names(df), unique = TRUE)
     df
   })
 
-  # --- 3-6. 表示列チェックボックス ---------------------------------
+  # ---------- display-column selector ----------
   output$display_column_ui <- renderUI({
     df <- processed_data(); req(df)
     numeric_orig <- names(data())[sapply(data(), is.numeric)]
-    logs <- if (!is.null(input$log_columns))
-      paste0("log_", input$log_columns) else NULL
+    logs <- if (!is.null(input$log_columns)) paste0("log_", input$log_columns) else NULL
     default <- intersect(c(numeric_orig, logs), names(df))
     checkboxGroupInput("display_columns", "Display columns:",
                        choices = names(df), selected = default, inline = TRUE)
   })
 
-  # --- 3-7. フィルタ済みテーブル (10行制限) -------------------------
+  # ---------- filtered table ----------
   output$filtered_table <- renderDT({
     df <- processed_data(); req(df)
     if (!is.null(input$display_columns))
       df <- df[, intersect(input$display_columns, names(df)), drop = FALSE]
-    datatable(df, editable = FALSE, options = list(pageLength = 10))  #:contentReference[oaicite:11]{index=11}
+    datatable(df, editable = FALSE, options = list(pageLength = 10))
   })
 
-  # --- 3-8. 相関ヒートマップ ----------------------------------------
-  output$corr_plot <- renderPlot({
-    df  <- processed_data();  req(df)
-    num <- df[, sapply(df, is.numeric), drop = FALSE]
-    if (ncol(num) < 2) return()
+  # ---------- correlation matrix ----------
+  output$corr_matrix <- renderDT({
+    df <- processed_data(); req(df)
+    cols <- input$display_columns
+    if (is.null(cols) || length(cols) < 2) {
+      cor_df <- data.frame(Message = "Select at least two columns to view correlation matrix.")
+      return(datatable(cor_df, rownames = FALSE, options = list(dom = 't')))
+    }
+    cor_mat <- round(cor(df[, cols], use = "pairwise.complete.obs"), 3)
+    datatable(cor_mat, options = list(dom = 't'))
+  })
 
-    M  <- cor(num, use = "pairwise.complete.obs")
-    md <- reshape2::melt(M)
-
-    ggplot(md, aes(Var1, Var2, fill = value)) +
-      geom_tile() +
-      scale_fill_gradient2(
-        low = "blue", mid = "white", high = "red",
-        midpoint = 0, limits = c(-1, 1),
-        name = "ρ"                       # ← labs() の代わりにここでも可
-      ) +
-      labs(fill = "ρ")                   # ← 凡例タイトルの正式指定
-    theme_minimal() +
-      theme(
-        axis.text.x = element_text(angle = 45, hjust = 1)
-      )
-  }, res = 96)
-
-
-  # ---- 3-9. Measurement Model テーブル -----------------------------
+  # ---------- initialise measurement-model table ----------
   input_table_data <- reactiveVal(NULL)
-  observeEvent(input$display_columns, {
+  observeEvent(input$display_columns, ignoreNULL = FALSE, {
     inds <- as.character(input$display_columns %||% names(processed_data()))
-    init <- data.frame(matrix(ncol = 3 + length(inds), nrow = 1),
+    init <- data.frame(Latent    = "LatentVariable1",
+                       Indicator = "",
+                       Operator  = "=~",
+                       matrix(FALSE, nrow = 1, ncol = length(inds)),
                        stringsAsFactors = FALSE)
     colnames(init) <- c("Latent", "Indicator", "Operator", inds)
-    init$Latent <- ""; init$Indicator <- ""; init$Operator <- "=~"
-    for (col in inds) init[[col]] <- FALSE
     input_table_data(init)
-  }, ignoreNULL = FALSE)
+  })
 
+  # ---------- measurement handsontable ----------
   output$input_table <- renderRHandsontable({
     df <- input_table_data(); req(df)
-    rh <- rhandsontable(df, rowHeaders = FALSE)
+    rh <- rhandsontable(df, rowHeaders = FALSE) %>%
+      hot_table(highlightReadOnly = TRUE)
     rh <- hot_col(rh, "Latent")
     rh <- hot_col(rh, "Indicator", readOnly = TRUE)
     rh <- hot_col(rh, "Operator",  readOnly = TRUE)
-    for (nm in colnames(df)[4:ncol(df)])
+    for (nm in setdiff(colnames(df), c("Latent", "Indicator", "Operator")))
       rh <- hot_col(rh, nm, type = "checkbox")
     rh
   })
 
   observeEvent(input$input_table, {
-    tbl <- as.data.frame(hot_to_r(input$input_table)); req(tbl)
-    tbl$Latent <- make.names(tbl$Latent, unique = FALSE)
-    convs <- make.unique(c(names(processed_data()), tbl$Latent))
+    tbl <- hot_to_r(input$input_table); req(tbl)
+    tbl$Latent    <- make.names(tbl$Latent, unique = FALSE)
+    convs         <- make.unique(c(names(processed_data()), tbl$Latent))
     tbl$Indicator <- tail(convs, nrow(tbl))
     input_table_data(tbl)
   })
 
   observeEvent(input$add_row, {
     df <- input_table_data(); req(df)
-    nr <- df[1, , drop = FALSE]
-    nr[,] <- ""
-    nr$Operator <- "=~"
-    for (col in colnames(nr)[4:ncol(nr)]) nr[[col]] <- FALSE
-    input_table_data(rbind(df, nr))
+    new_row        <- df[1, ]
+    new_row[,]     <- FALSE
+    new_row$Latent <- ""
+    new_row$Operator <- "=~"
+    input_table_data(rbind(df, new_row))
   })
 
-  # ---- 3-10. Structural Model テーブル -----------------------------
+  # ---------- structural-model handsontable ----------
   output$checkbox_matrix <- renderRHandsontable({
-    df <- processed_data(); req(df)
+    df    <- processed_data(); req(df)
     deps  <- as.character(input$display_columns %||% names(df))
     convs <- setdiff(na.omit(unique(input_table_data()$Indicator)), "")
-    items <- unique(c(deps, convs))
-    if (!length(items)) return()
-    mat <- data.frame(Dependent = items, Operator = "~",
-                      stringsAsFactors = FALSE)
+    items <- unique(c(deps, convs)); if (!length(items)) return()
+    mat   <- data.frame(Dependent = items, Operator = "~",
+                        stringsAsFactors = FALSE)
     for (col in items) mat[[col]] <- FALSE
-    rh <- rhandsontable(mat, rowHeaders = FALSE)
+    rh <- rhandsontable(mat, rowHeaders = FALSE) %>%
+      hot_table(highlightReadOnly = TRUE)
     rh <- hot_col(rh, "Dependent", readOnly = TRUE)
     rh <- hot_col(rh, "Operator",  readOnly = TRUE)
     for (col in items) rh <- hot_col(rh, col, type = "checkbox")
+    # lock self-predictors
     for (i in seq_along(items))
       rh <- hot_cell(rh, row = i, col = match(items[i], colnames(mat)),
                      readOnly = TRUE)
     rh
   })
 
-  # ---- 3-11. lavaan モデル文字列 -----------------------------------
+  # ---------- build lavaan syntax ----------
   lavaan_model_str <- reactive({
     req(input$input_table, input$checkbox_matrix)
-    meas <- as.data.frame(hot_to_r(input$input_table))
-    mlines <- lapply(seq_len(nrow(meas)), function(i){
-      lt <- meas$Latent[i]; if (lt == "") return()
+    meas <- hot_to_r(input$input_table)
+    mlines <- lapply(seq_len(nrow(meas)), function(i) {
+      lt   <- meas$Latent[i]; if (!nzchar(lt)) return(NULL)
       vars <- names(meas)[4:ncol(meas)]
       inds <- vars[as.logical(meas[i, vars])]
-      if (!length(inds)) return()
+      if (!length(inds)) return(NULL)
       paste0(lt, " =~ ", paste(inds, collapse = " + "))
     })
-    struc <- as.data.frame(hot_to_r(input$checkbox_matrix))
-    slines <- lapply(seq_len(nrow(struc)), function(i){
-      dp <- struc$Dependent[i]; if (dp == "") return()
+    struc <- hot_to_r(input$checkbox_matrix)
+    slines <- lapply(seq_len(nrow(struc)), function(i) {
+      dp    <- struc$Dependent[i]; if (!nzchar(dp)) return(NULL)
       preds <- names(struc)[3:ncol(struc)]
       ps    <- preds[as.logical(struc[i, preds])]
-      if (!length(ps)) return()
+      if (!length(ps)) return(NULL)
       paste0(dp, " ~ ", paste(ps, collapse = " + "))
     })
     unlist(c(mlines, slines))
@@ -338,28 +338,36 @@ server <- function(input, output, session){
 
   output$lavaan_model <- renderText({
     ln <- lavaan_model_str()
-    validate(need(length(ln) > 0,
-                  "Define measurement and structural equations."))
+    if (length(ln) == 0)
+      return("Please define measurement and structural equations to view the lavaan syntax.")
     paste(ln, collapse = "\n")
   })
 
-  # ---- 3-12. lavaan フィット ---------------------------------------
+  # ---------- fit the model ----------
   fit_model <- reactive({
-    ln <- lavaan_model_str(); req(length(ln) > 0)
+    ln <- lavaan_model_str()
+    if (length(ln) == 0) return(NULL)
     sem(paste(ln, collapse = "\n"),
-        data = processed_data(),
-        parser = "old",
-        meanstructure = TRUE)       # 平均構造を推定:contentReference[oaicite:12]{index=12}
+        data          = processed_data(),
+        parser        = "old",     # Japanese variable names
+        meanstructure = TRUE)
   })
 
-  # ---- 3-13. Fit Indices 表 ----------------------------------------
+  # ---------- fit indices ----------
   output$fit_indices <- renderDT({
+    ln <- lavaan_model_str()
+    if (length(ln) == 0) {
+      msg <- data.frame(Message = "Define a model to view fit indices.")
+      return(datatable(msg, rownames = FALSE, options = list(dom = 't')))
+    }
     fit <- fit_model()
-    ms  <- fitMeasures(fit,
-                       c("pvalue","srmr","rmsea","aic","bic","gfi","agfi","nfi","cfi"))
-    vals <- round(as.numeric(ms), 3); names(vals) <- names(ms)
-    thr <- c(pvalue=.05,srmr=.08,rmsea=.06,gfi=.90,agfi=.90,nfi=.90,cfi=.90)
-    fmt <- function(idx, v){
+    ms  <- fitMeasures(fit, c("pvalue","srmr","rmsea","aic","bic",
+                              "gfi","agfi","nfi","cfi"))
+    vals <- round(as.numeric(ms), 3)
+    names(vals) <- names(ms)
+    thr <- c(pvalue = .05, srmr = .08, rmsea = .06,
+             gfi = .90, agfi = .90, nfi = .90, cfi = .90)
+    fmt <- function(idx, v) {
       ok <- switch(idx,
                    pvalue = v >= thr["pvalue"],
                    srmr   = v <= thr["srmr"],
@@ -367,43 +375,52 @@ server <- function(input, output, session){
                    gfi    = v >= thr["gfi"],
                    agfi   = v >= thr["agfi"],
                    nfi    = v >= thr["nfi"],
-                   cfi    = v >= thr["cfi"],
-                   TRUE)
+                   cfi    = v >= thr["cfi"], TRUE)
       if (is.na(v)) "NA"
-      else if (!ok) sprintf('<span style="color:red;">%.3f</span>', v)
+      else if (!ok) sprintf('<span style=\"color:red;\">%.3f</span>', v)
       else sprintf('%.3f', v)
     }
     html_vals <- mapply(fmt, names(vals), vals, USE.NAMES = FALSE)
     tbl <- as.data.frame(t(html_vals), stringsAsFactors = FALSE)
-    colnames(tbl) <- toupper(names(vals))        # 大文字化
+    colnames(tbl) <- toupper(names(vals))
     datatable(tbl, escape = FALSE, rownames = FALSE,
               options = list(dom = 't'))
   })
 
-  # ---- 3-14. 近似式・Summary・Estimates ----------------------------
+  # ---------- approximate equations ----------
   output$approx_eq <- renderText({
+    ln <- lavaan_model_str()
+    if (length(ln) == 0)
+      return("Define a model to view approximate equations.")
     paste(lavaan_to_equations(fit_model()), collapse = "\n")
   })
+
+  # ---------- details tab ----------
   output$fit_summary <- renderPrint({
+    ln <- lavaan_model_str()
+    validate(need(length(ln) > 0, "Define a model to view the summary."))
     summary(fit_model(), fit.measures = TRUE)
   })
   output$param_tbl <- renderDT({
-    datatable(parameterEstimates(fit_model()), options = list(pageLength = 15))
+    ln <- lavaan_model_str()
+    validate(need(length(ln) > 0, "Define a model to view parameter estimates."))
+    datatable(parameterEstimates(fit_model()),
+              options = list(pageLength = 15))
   })
 
-  # ---- 3-15. Path Diagram + Error ----------------------------------
+  # ---------- path diagram ----------
   output$sem_plot_ui <- renderUI({
-    tryCatch(
-      grVizOutput("sem_plot"),
-      error = function(e)
-        div(style = "color:red;",
-            paste("Model Error:", e$message))
-    )
+    ln <- lavaan_model_str()
+    if (length(ln) == 0)
+      return(div("Define a model to view the path diagram."))
+    tryCatch(grVizOutput("sem_plot"),
+             error = function(e)
+               div(style = "color:red;", paste("Model Error:", e$message)))
   })
   output$sem_plot <- renderGrViz({
-    semDiagram(fit_model(),  standardized = TRUE)
+    semDiagram(fit_model(), standardized = TRUE)
   })
 }
 
-# ---- 4. 起動 -------------------------------------------------------
+# ---- Run the application ---------------------------------------
 shinyApp(ui, server)
