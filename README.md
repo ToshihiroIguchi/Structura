@@ -37,25 +37,88 @@ From your R console, run:
 shiny::runGitHub("Structura", "ToshihiroIguchi", ref = "main")
 ```
 
-## Hosting
+## Hosting the Shiny App Directly from GitHub
 
-Host the Shiny application from GitHub in a private network.
-Enter the following command in R console.
+You can launch **Structura** straight from its GitHub repository and make it accessible across your LAN 
+by automatically detecting your host’s IPv4 address and configuring Shiny’s host/port options. 
+Place the following snippet in your `README.md` under a “Hosting” or “Development” section.
 
-    #Port specification
-    port <- 8100
+```r
+# ─── Prerequisites ───────────────────────────────────────────
+# Install required packages (once):
+if (!requireNamespace("stringr", quietly = TRUE)) {
+  install.packages("stringr")
+}
+library(stringr)
+library(shiny)
 
-    #Acquire private address information
-    ipconfig.dat <- system("ipconfig", intern = TRUE)
-    ipv4.dat <- ipconfig.dat[grep("IPv4", ipconfig.dat)][1]
-    ip <- gsub(".*? ([[:digit:]])", "\\1", ipv4.dat)
+# ─── Function: Detect Host IPv4 Address ─────────────────────
+get_ip <- function() {
+  sysname <- Sys.info()[["sysname"]]
+  
+  if (sysname == "Windows") {
+    # 1. Run ipconfig and convert from CP932 to UTF-8
+    raw   <- system("ipconfig", intern = TRUE)
+    lines <- iconv(raw, from = "CP932", to = "UTF-8")
+    
+    # 2. Look for the “IPv4 アドレス” line (Japanese Windows)
+    idx <- grep("IPv4 アドレス", lines)
+    if (length(idx) > 0) {
+      line <- lines[idx[1]]
+    } else {
+      # Fallback: match “IPv4” case‐insensitive
+      line <- shell('ipconfig | findstr /i "IPv4"', intern = TRUE)[1]
+    }
+    # 3. Last‐resort: use netsh if still empty
+    if (is.na(line) || !nzchar(line)) {
+      out  <- system("netsh interface ipv4 show ipaddresses", intern = TRUE)
+      line <- grep("IP Address", out, value = TRUE)[1]
+    }
+    # 4. Extract the numeric IPv4 pattern
+    ip <- str_extract(line, "\\b(?:[0-9]{1,3}\\.){3}[0-9]{1,3}\\b")
+    
+  } else {
+    # Linux / macOS: list IPv4 addresses
+    addr4 <- system("ip -4 addr", intern = TRUE)
+    inet  <- addr4[grep("inet ", addr4)[1]]
+    ip    <- sub(".*inet\\s+([0-9\\.]+)/.*", "\\1", inet)
+    
+    # Fallback: use `ip route get` for actual outbound interface
+    if (is.na(ip) || !nzchar(ip)) {
+      rt <- system("ip route get 8.8.8.8", intern = TRUE)[1]
+      ip <- str_extract(rt, "\\b(?:[0-9]{1,3}\\.){3}[0-9]{1,3}\\b")
+    }
+  }
+  
+  ip
+}
 
-    #Host the Shiny application from GitHub
-    shiny::runGitHub("Structura", "ToshihiroIguchi", launch.browser = FALSE, port = port, host = ip, ref = "main")
+# ─── Configuration & Launch ─────────────────────────────────
+port  <- 8100
+host_ip <- get_ip()
+cat("Launching on host:", host_ip, " port:", port, "\n")
+
+# runGitHub() does not accept a `host` argument directly;
+# we set Shiny options instead:
+options(
+  shiny.host = host_ip,
+  shiny.port = port
+)
+
+# Launch Structura from GitHub without opening a browser:
+shiny::runGitHub(
+  repo           = "Structura",
+  username       = "ToshihiroIguchi",
+  ref            = "main",
+  launch.browser = FALSE,
+  port           = port
+)
+
 
 If you are in the private network, you can also launch the Shiny application by entering the URL following `Listing on` to the browser.
 
 ```
+
 ## Image
 <br>
 <img src="image.png"/>
