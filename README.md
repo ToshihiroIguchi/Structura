@@ -55,13 +55,6 @@ Enter the following command in R console.
 
 If you are in the private network, you can also launch the Shiny application by entering the URL following `Listing on` to the browser.
 
-### Docker
-
-Build and run with Docker:
-
-```bash
-docker build -t structura .
-docker run --rm -p 3838:3838 structura
 ```
 ## Image
 <br>
