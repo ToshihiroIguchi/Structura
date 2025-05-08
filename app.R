@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 # ---------------------------------------------------------------
 # Structura – Structural Insights, Simplified
-# Shiny app for Structural Equation Modeling with mean structures,
-# embedded logo, and enhanced comments
+# Shiny app for Structural Equation Modeling with mean structures
 # ---------------------------------------------------------------
 options(
   shiny.fullstacktrace = TRUE,
@@ -51,28 +50,23 @@ loadDataOnce <- function(fileInput) {
 # ================================================================
 ui <- fluidPage(
   useShinyjs(),
-
   # ---------- global styles ----------
   tags$head(
     tags$link(rel = "icon", type = "image/png", href = "logo.png"),
     tags$style(HTML("
       #app-logo { position: absolute; top: 8px; right: 16px; }
-      /* neutral modal look (no special colours) */
       .modal-header    { background: #f8f9fa; }
       .modal-title     { font-weight: bold; }
-      /* grey-out read-only rhandsontable cells */
       .htDimmed        { background-color: #d9d9d9 !important; color: #777 !important; }
       .shiny-modal .modal-content { border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
       .shiny-modal .modal-body    { padding: 20px !important; }
       .shiny-modal .modal-footer  { padding: 10px !important; }
     "))
   ),
-
   # ---------- app logo ----------
   div(id = "app-logo",
       img(src = "logo.png", height = 40,
           title = "Structural Insights, Simplified")),
-
   title = "Structura",
 
   # ---------- top-level tabs ----------
@@ -213,13 +207,19 @@ server <- function(input, output, session) {
     df <- data()[idx, , drop = FALSE]
     df[] <- lapply(df, function(x) if (is.factor(x)) as.character(x) else x)
 
-    # log10 transform
+    # --- keep column position for log10 transform -----------------
     if (!is.null(input$log_columns)) {
+      col_order <- names(df)
       for (col in input$log_columns) {
-        df[[paste0("log_", col)]] <- log10(df[[col]])
-        df[[col]] <- NULL
+        log_col <- paste0("log_", col)
+        df[[log_col]] <- log10(df[[col]])
+        pos           <- match(col, col_order)
+        col_order[pos] <- log_col
+        df[[col]]     <- NULL
       }
+      df <- df[, col_order, drop = FALSE]
     }
+    # --------------------------------------------------------------
 
     # one-hot encode low-cardinality character vars
     chars <- names(df)[vapply(df, is.character, logical(1))]
@@ -255,12 +255,19 @@ server <- function(input, output, session) {
 
   # ---------- correlation heat-map ----------
   output$corr_heatmap <- renderPlot({
+
+    req(!is.null(input$display_columns))          # 未選択時は描画しない
+
     df <- processed_data()
-    corr_cols <- input$display_columns
-    validate(need(length(corr_cols) >= 2,
-                  "Select at least two columns to view the heatmap."))
-    cm <- cor(df[, corr_cols], use = "pairwise.complete.obs")
-    mf <- melt(round(cm, 3))
+    all_cols <- intersect(input$display_columns, names(df))
+    num_cols <- all_cols[sapply(df[, all_cols, drop = FALSE], is.numeric)]
+
+    # 数値列が 2 本未満なら描画しない
+    if (length(num_cols) < 2) return(NULL)
+
+    cm <- cor(df[, num_cols, drop = FALSE], use = "pairwise.complete.obs")
+    mf <- reshape2::melt(round(cm, 3))
+
     ggplot(mf, aes(x = Var2, y = Var1, fill = value)) +
       geom_tile() +
       geom_text(aes(label = sprintf('%.3f', value))) +
@@ -316,10 +323,17 @@ server <- function(input, output, session) {
   # ---------- structural-model rhandsontable ----------
   output$checkbox_matrix <- renderRHandsontable({
     df <- processed_data(); req(df)
-    deps  <- as.character(input$display_columns %||% names(df))
-    convs <- setdiff(na.omit(unique(input_table_data()$Indicator)), "")
+    deps <- as.character(input$display_columns %||% names(df))
+
+    # Latent：✔ が 1 つ以上の行だけを採用
+    meas <- input_table_data(); req(meas)
+    vars <- names(meas)[4:ncol(meas)]
+    row_has_indicator <- apply(meas[vars], 1, function(x) any(as.logical(x)))
+    convs <- setdiff(na.omit(unique(meas$Indicator[row_has_indicator])), "")
+
     items <- unique(c(deps, convs))
     if (!length(items)) return()
+
     mat   <- data.frame(Dependent = items, Operator = "~",
                         stringsAsFactors = FALSE)
     for (col in items) mat[[col]] <- FALSE
