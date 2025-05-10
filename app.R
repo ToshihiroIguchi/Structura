@@ -6,7 +6,7 @@
 options(
   shiny.fullstacktrace = TRUE,
   shiny.reactlog       = TRUE,
-  shiny.sanitize.errors = TRUE     # hide raw errors from UI
+  shiny.sanitize.errors = TRUE
 )
 
 # ---- Libraries --------------------------------------------------
@@ -70,8 +70,8 @@ ui <- fluidPage(
       .shiny-modal .modal-body    { padding: 20px !important; }
       .shiny-modal .modal-footer  { padding: 10px !important; }
       .alert-box { background:#fff3cd;border:1px solid #ffeeba;border-radius:6px;padding:10px;margin-bottom:10px; }
-      #lavaan_model { white-space: pre; }          /* keep pre */
-      #approx_eq    { white-space: pre-wrap; }     /* ★NEW */
+      #lavaan_model { white-space: pre; }
+      #approx_eq    { white-space: pre-wrap; }
     "))
   ),
   div(id = "app-logo",
@@ -111,6 +111,15 @@ ui <- fluidPage(
                       rHandsontableOutput("checkbox_matrix"),
                       tags$hr(),
                       h4("lavaan Syntax"),
+                      selectInput("missing_method", "Missing Data Handling:",
+                                  choices = c(
+                                    "Listwise deletion"           = "listwise",
+                                    "FIML (ML)"                   = "ml",
+                                    "FIML including exogenous x"  = "ml.x",
+                                    "Two-stage ML"                = "two.stage",
+                                    "Robust two-stage ML"         = "robust.two.stage"
+                                  ),
+                                  selected = "listwise"),
                       verbatimTextOutput("lavaan_model")
                ),
                column(width = 5,
@@ -121,7 +130,7 @@ ui <- fluidPage(
                       DTOutput("fit_indices"),
                       tags$br(),
                       h4("Approximate Equations"),
-                      verbatimTextOutput("approx_eq"),          # ★MOD style 削除
+                      verbatimTextOutput("approx_eq"),
                       tags$hr(),
                       h4("Path Diagram Options"),
                       selectInput("layout_dir", "Layout Direction:",
@@ -373,6 +382,7 @@ server <- function(input, output, session) {
     tryCatch({
       fm <- sem(paste(ln, collapse = "\n"),
                 data          = processed_data(),
+                missing       = input$missing_method,
                 fixed.x       = FALSE,
                 parser        = "old",
                 meanstructure = (input$analysis_mode == "raw"))
