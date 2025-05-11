@@ -94,23 +94,11 @@ ui <- fluidPage(
     tabPanel("Model",
              fluidRow(
                column(width = 7,
+                      # ---- Analysis options --------------------------------
                       radioButtons("analysis_mode", "Analysis mode:",
                                    choices  = c("Raw (unstandardized)"  = "raw",
                                                 "Standardized (scaled)" = "std"),
                                    selected = "std", inline = TRUE),
-                      conditionalPanel(
-                        condition = "input.analysis_mode == 'raw'",
-                        checkboxInput("diagram_std",
-                                      "Show standardized coefficients in diagram",
-                                      value = TRUE)),
-                      h4("Measurement Model"),
-                      rHandsontableOutput("input_table"),
-                      actionButton("add_row", "Add Row", class = "btn btn-primary"),
-                      tags$hr(),
-                      h4("Structural Model"),
-                      rHandsontableOutput("checkbox_matrix"),
-                      tags$hr(),
-                      h4("lavaan Syntax"),
                       selectInput("missing_method", "Missing Data Handling:",
                                   choices = c(
                                     "Listwise deletion"           = "listwise",
@@ -120,6 +108,20 @@ ui <- fluidPage(
                                     "Robust two-stage ML"         = "robust.two.stage"
                                   ),
                                   selected = "listwise"),
+                      conditionalPanel(
+                        condition = "input.analysis_mode == 'raw'",
+                        checkboxInput("diagram_std",
+                                      "Show standardized coefficients in diagram",
+                                      value = TRUE)),
+                      # -------------------------------------------------------
+                      h4("Measurement Model"),
+                      rHandsontableOutput("input_table"),
+                      actionButton("add_row", "Add Row", class = "btn btn-primary"),
+                      tags$hr(),
+                      h4("Structural Model"),
+                      rHandsontableOutput("checkbox_matrix"),
+                      tags$hr(),
+                      h4("lavaan Syntax"),
                       verbatimTextOutput("lavaan_model")
                ),
                column(width = 5,
@@ -133,22 +135,30 @@ ui <- fluidPage(
                       verbatimTextOutput("approx_eq"),
                       tags$hr(),
                       h4("Path Diagram Options"),
-                      selectInput("layout_dir", "Layout Direction:",
-                                  choices = c("Left → Right" = "LR",
-                                              "Top → Bottom" = "TB"),
-                                  selected = "LR"),
+                      # ---- unified layout selector --------------------------
+                      selectInput("layout_style", "Layout & Engine:",
+                                  choices = c(
+                                    "Hierarchical Left → Right (dot)" = "dot_LR",
+                                    "Hierarchical Top → Bottom (dot)" = "dot_TB",
+                                    "Spring model layout (neato)"      = "neato",
+                                    "Force-Directed Placement (fdp)"   = "fdp",
+                                    "Circular layout (circo)"          = "circo",
+                                    "Radial layout (twopi)"            = "twopi"
+                                  ),
+                                  selected = "dot_LR"),
+                      # -------------------------------------------------------
                       h4("Path Diagram"),
-                      div(style = "max-height:45vh; overflow:auto; border:1px solid #ccc;",
+                      div(style = "max-height:45vh; overflow-y:auto; overflow-x:hidden; border:1px solid #ccc;",
                           uiOutput("sem_plot_ui"))
                )
              )),
 
     tabPanel("Details",
-             h4("Model Summary"),
-             verbatimTextOutput("fit_summary"),
-             tags$hr(),
              h4("Parameter Estimates"),
-             DTOutput("param_tbl")),
+             DTOutput("param_tbl"),
+             tags$hr(),
+             h4("Model Summary"),
+             verbatimTextOutput("fit_summary")),
 
     tabPanel("Help", includeMarkdown("help.md"))
   )
@@ -473,9 +483,17 @@ server <- function(input, output, session) {
     model <- fit_model_safe()
     validate(need(model$ok, model$msg_friendly))
     std_for_plot <- if (input$analysis_mode == "std") TRUE else input$diagram_std
+
+    # ---- parse layout_style into engine / rankdir ---------------
+    parts  <- strsplit(input$layout_style, "_", fixed = TRUE)[[1]]
+    eng    <- parts[1]
+    rank   <- ifelse(length(parts) == 2, parts[2], "LR")
+    # -------------------------------------------------------------
+
     semDiagram(model$fit,
                standardized = std_for_plot,
-               layout       = input$layout_dir)
+               layout       = rank,
+               engine       = eng)
   })
 }
 
