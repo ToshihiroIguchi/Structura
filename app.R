@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
+
 # ---------------------------------------------------------------
 # Structura – Structural Insights, Simplified
 # Shiny app for Structural Equation Modeling with mean structures
 # ---------------------------------------------------------------
+
 options(
   shiny.fullstacktrace = TRUE,
   shiny.reactlog       = TRUE,
@@ -10,6 +12,7 @@ options(
 )
 
 # ---- Libraries --------------------------------------------------
+
 library(shiny)
 library(shinyjs)
 library(DT)
@@ -25,9 +28,17 @@ library(markdown)
 `%||%` <- function(x, y) if (!is.null(x)) x else y
 Sys.setlocale("LC_CTYPE", "ja_JP.UTF-8")
 
-# ---- Helper: approximation equations ---------------------------
-lavaan_to_equations <- function(fit, standardized = TRUE, digits = 3) {
-  pe <- parameterEstimates(fit, standardized = standardized, remove.def = TRUE)
+# ---- Helper: Approximate Equations -----------------------------
+#   * Indicator  =  intercept + loading * Latent
+#   * Dependent  =  intercept + Σ( slope * Predictor )
+#   * 全て Raw (非標準化) 係数で生成
+# ----------------------------------------------------------------
+lavaan_to_equations <- function(fit, digits = 3) {
+
+  # ---- 係数取得（標準化しない） ------------------------------
+  pe <- parameterEstimates(fit, standardized = FALSE, remove.def = TRUE)
+
+  # ---- 数値フォーマッタ --------------------------------------
   format_est <- function(x, digits = 3) {
     sapply(x, function(v) {
       if (is.na(v)) return("NA")
@@ -37,16 +48,46 @@ lavaan_to_equations <- function(fit, standardized = TRUE, digits = 3) {
         format(round(v, digits), nsmall = digits)
     })
   }
-  build_eq <- function(op) split(pe[pe$op == op, ], pe$lhs[pe$op == op])
-  format_lines <- function(lst, sep) {
-    unlist(lapply(names(lst), function(lhs) {
-      df  <- lst[[lhs]]
-      rhs <- paste0(format_est(df$est, digits), "*", df$rhs)
-      paste(lhs, sep, paste(rhs, collapse = " + "))
-    }))
+
+  # ---- データフレーム分割 ------------------------------------
+  meas_df      <- pe[pe$op == "=~",  ]   # 測定方程式
+  reg_df       <- pe[pe$op == "~",   ]   # 構造方程式
+  intercept_df <- pe[pe$op == "~1",  ]   # 切片
+
+  eq_lines <- character(0)
+
+  # ---------- 1. 測定方程式 ------------
+  if (nrow(meas_df)) {
+    for (i in seq_len(nrow(meas_df))) {
+      ind     <- meas_df$rhs[i]                # Indicator
+      lat     <- meas_df$lhs[i]                # Latent
+      loading <- format_est(meas_df$est[i], digits)
+      int_val <- intercept_df$est[intercept_df$lhs == ind]
+      rhs     <- c(if (length(int_val))
+        format_est(int_val, digits) else NULL,
+        paste0(loading, "*", lat))
+      eq_lines <- c(eq_lines,
+                    paste(ind, "=", paste(rhs, collapse = " + ")))
+    }
   }
-  c(format_lines(build_eq("=~"), "=~"),
-    format_lines(build_eq("~"),  "~"))
+
+  # ---------- 2. 構造方程式 ------------
+  if (nrow(reg_df)) {
+    reg_split <- split(reg_df, reg_df$lhs)
+    for (lhs in names(reg_split)) {
+      df  <- reg_split[[lhs]]
+      int <- intercept_df$est[intercept_df$lhs == lhs]
+      rhs <- paste0(format_est(df$est, digits), "*", df$rhs)
+      rhs <- c(if (length(int))
+        format_est(int, digits) else NULL,
+        rhs)
+      eq_lines <- c(eq_lines,
+                    paste(lhs, "=", paste(rhs, collapse = " + ")))
+    }
+  }
+
+  # ---------- 出力 ---------------------
+  eq_lines
 }
 
 loadDataOnce <- function(fileInput) {
@@ -55,24 +96,25 @@ loadDataOnce <- function(fileInput) {
 }
 
 # ================================================================
-#                               UI
+# UI
 # ================================================================
+
 ui <- fluidPage(
   useShinyjs(),
   tags$head(
     tags$link(rel = "icon", type = "image/png", href = "logo.png"),
     tags$style(HTML("
-      #app-logo { position: absolute; top: 8px; right: 16px; }
-      .modal-header { background: #f8f9fa; }
-      .modal-title  { font-weight: bold; }
-      .htDimmed { background-color: #d9d9d9 !important; color: #777 !important; }
-      .shiny-modal .modal-content { border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-      .shiny-modal .modal-body    { padding: 20px !important; }
-      .shiny-modal .modal-footer  { padding: 10px !important; }
-      .alert-box { background:#fff3cd;border:1px solid #ffeeba;border-radius:6px;padding:10px;margin-bottom:10px; }
-      #lavaan_model { white-space: pre; }
-      #approx_eq    { white-space: pre-wrap; }
-    "))
+#app-logo { position: absolute; top: 8px; right: 16px; }
+.modal-header { background: #f8f9fa; }
+.modal-title  { font-weight: bold; }
+.htDimmed { background-color: #d9d9d9 !important; color: #777 !important; }
+.shiny-modal .modal-content { border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+.shiny-modal .modal-body    { padding: 20px !important; }
+.shiny-modal .modal-footer  { padding: 10px !important; }
+.alert-box { background:#fff3cd;border:1px solid #ffeeba;border-radius:6px;padding:10px;margin-bottom:10px; }
+#lavaan_model { white-space: pre; }
+#approx_eq    { white-space: pre-wrap; }
+"))
   ),
   div(id = "app-logo",
       img(src = "logo.png", height = 40,
@@ -94,7 +136,7 @@ ui <- fluidPage(
     tabPanel("Model",
              fluidRow(
                column(width = 7,
-                      # ---- Analysis options --------------------------------
+                      # ---- Analysis options ----------------------------
                       radioButtons("analysis_mode", "Analysis mode:",
                                    choices  = c("Raw (unstandardized)"  = "raw",
                                                 "Standardized (scaled)" = "std"),
@@ -113,7 +155,7 @@ ui <- fluidPage(
                         checkboxInput("diagram_std",
                                       "Show standardized coefficients in diagram",
                                       value = TRUE)),
-                      # -------------------------------------------------------
+                      # ---------------------------------------------------
                       h4("Measurement Model"),
                       rHandsontableOutput("input_table"),
                       actionButton("add_row", "Add Row", class = "btn btn-primary"),
@@ -135,7 +177,7 @@ ui <- fluidPage(
                       verbatimTextOutput("approx_eq"),
                       tags$hr(),
                       h4("Path Diagram Options"),
-                      # ---- unified layout selector --------------------------
+                      # ---- unified layout selector --------------------
                       selectInput("layout_style", "Layout & Engine:",
                                   choices = c(
                                     "Hierarchical Left → Right (dot)" = "dot_LR",
@@ -146,7 +188,7 @@ ui <- fluidPage(
                                     "Radial layout (twopi)"            = "twopi"
                                   ),
                                   selected = "dot_LR"),
-                      # -------------------------------------------------------
+                      # -------------------------------------------------
                       h4("Path Diagram"),
                       div(style = "max-height:45vh; overflow-y:auto; overflow-x:hidden; border:1px solid #ccc;",
                           uiOutput("sem_plot_ui"))
@@ -165,8 +207,9 @@ ui <- fluidPage(
 )
 
 # ================================================================
-#                            SERVER
+# SERVER
 # ================================================================
+
 server <- function(input, output, session) {
 
   showModal(
@@ -213,6 +256,8 @@ server <- function(input, output, session) {
               rownames = FALSE)
   }, server = FALSE)
 
+  # ---------- Filtering & preprocessing --------------------------
+
   output$log_transform_ui <- renderUI({
     req(data())
     nums  <- names(data())[sapply(data(), is.numeric)]
@@ -228,17 +273,21 @@ server <- function(input, output, session) {
     if (!length(idx)) idx <- seq_len(nrow(data()))
     df <- data()[idx, , drop = FALSE]
     df[] <- lapply(df, function(x) if (is.factor(x)) as.character(x) else x)
+
+    # --- log10 transform -----------------------------------------
     if (!is.null(input$log_columns)) {
       col_order <- names(df)
       for (col in input$log_columns) {
-        log_col <- paste0("log_", col)
+        log_col      <- paste0("log_", col)
         df[[log_col]] <- log10(df[[col]])
         pos           <- match(col, col_order)
         col_order[pos] <- log_col
-        df[[col]]     <- NULL
+        df[[col]]      <- NULL
       }
       df <- df[, col_order, drop = FALSE]
     }
+
+    # --- one-hot encode ------------------------------------------
     chars <- names(df)[vapply(df, is.character, logical(1))]
     multi <- chars[vapply(df[chars], function(x) {
       u <- unique(x); length(u) > 1 && length(u) < nrow(df)
@@ -249,6 +298,8 @@ server <- function(input, output, session) {
                   as.data.frame(mm, check.names = TRUE))
     }
     names(df) <- make.names(names(df), unique = TRUE)
+
+    # --- standardize if requested --------------------------------
     if (input$analysis_mode == "std") {
       num_cols <- vapply(df, is.numeric, logical(1))
       df[num_cols] <- scale(df[num_cols])
@@ -287,6 +338,8 @@ server <- function(input, output, session) {
       theme_minimal() +
       labs(x = NULL, y = NULL, fill = "Correlation")
   })
+
+  # ---------- Measurement table ----------------------------------
 
   input_table_data <- reactiveVal(NULL)
 
@@ -330,6 +383,8 @@ server <- function(input, output, session) {
     input_table_data(rbind(df, new_row))
   })
 
+  # ---------- Structural table -----------------------------------
+
   output$checkbox_matrix <- renderRHandsontable({
     df <- processed_data(); req(df)
     deps <- as.character(input$display_columns %||% names(df))
@@ -353,6 +408,8 @@ server <- function(input, output, session) {
                      readOnly = TRUE)
     rh
   })
+
+  # ---------- lavaan syntax --------------------------------------
 
   lavaan_model_str <- reactive({
     req(input$input_table, input$checkbox_matrix)
@@ -382,6 +439,8 @@ server <- function(input, output, session) {
       else
         ln, collapse = "\n")
   })
+
+  # ---------- Fit model safely -----------------------------------
 
   fit_model_safe <- reactive({
     ln <- lavaan_model_str()
@@ -439,7 +498,7 @@ server <- function(input, output, session) {
                    nfi    = v >= thr["nfi"],
                    cfi    = v >= thr["cfi"], TRUE)
       if (is.na(v)) "NA"
-      else if (!ok) sprintf('<span style=\"color:red;\">%.3f</span>', v)
+      else if (!ok) sprintf('<span style="color:red;">%.3f</span>', v)
       else sprintf('%.3f', v)
     }
     html_vals <- mapply(fmt, names(vals), vals, USE.NAMES = FALSE)
@@ -449,6 +508,7 @@ server <- function(input, output, session) {
               options = list(dom = 't'))
   })
 
+  # ----------------- Approximate Equations ----------------------
   output$approx_eq <- renderText({
     if (input$analysis_mode == "std")
       return("— Hidden in Standardized mode —")
@@ -469,6 +529,7 @@ server <- function(input, output, session) {
     datatable(parameterEstimates(model$fit), options = list(pageLength = 15))
   })
 
+  # ----------------- Path diagram UI ----------------------------
   output$sem_plot_ui <- renderUI({
     ln <- lavaan_model_str()
     if (length(ln) == 0)
@@ -498,4 +559,5 @@ server <- function(input, output, session) {
 }
 
 # ---- Run the application ---------------------------------------
+
 shinyApp(ui, server)
