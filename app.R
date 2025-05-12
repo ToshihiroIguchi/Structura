@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 # ---------------------------------------------------------------
 # Structura – Structural Insights, Simplified
 # Shiny app for Structural Equation Modeling with mean structures
@@ -163,10 +162,23 @@ ui <- fluidPage(
                       h4("Structural Model"),
                       rHandsontableOutput("checkbox_matrix"),
                       tags$hr(),
+                      # ----- Manual equations textbox (追加) -------------
+                      h4("Manual Equations"),
+                      textAreaInput("extra_eq",
+                                    "Additional lavaan syntax (one formula per line):",
+                                    value = "",
+                                    placeholder = "y1 ~ x1 + x2\nlatent2 =~ y3 + y4",
+                                    rows = 4,
+                                    resize = "vertical"),
+                      tags$hr(),
                       h4("lavaan Syntax"),
                       verbatimTextOutput("lavaan_model")
                ),
                column(width = 5,
+                      # ----- NEW: Run button -----------------------------
+                      actionButton("run_model", "Run / Update Model",
+                                   class = "btn btn-success"),
+                      tags$br(), tags$br(),
                       div(id = "fit_alert_box",
                           textOutput("fit_alert"),
                           class = "alert-box"),
@@ -417,7 +429,7 @@ server <- function(input, output, session) {
     mlines <- lapply(seq_len(nrow(meas)), function(i) {
       lt   <- meas$Latent[i]; if (!nzchar(lt)) return(NULL)
       vars <- names(meas)[4:ncol(meas)]
-      inds <- vars[as.logical(meas[i, vars])]
+      inds <- vars[as.logical(meas[i, vars])];
       if (!length(inds)) return(NULL)
       paste0(lt, " =~ ", paste(inds, collapse = " + "))
     })
@@ -429,7 +441,11 @@ server <- function(input, output, session) {
       if (!length(ps)) return(NULL)
       paste0(dp, " ~ ", paste(ps, collapse = " + "))
     })
-    unlist(c(mlines, slines))
+    # ----- add manual equations (new) -----------------------------
+    extra <- strsplit(input$extra_eq, "\\n")[[1]]
+    extra <- trimws(extra)
+    extra <- extra[nzchar(extra)]
+    unlist(c(mlines, slines, extra))
   })
 
   output$lavaan_model <- renderText({
@@ -440,10 +456,10 @@ server <- function(input, output, session) {
         ln, collapse = "\n")
   })
 
-  # ---------- Fit model safely -----------------------------------
+  # ---------- Fit model safely (eventReactive) -------------------
 
-  fit_model_safe <- reactive({
-    ln <- lavaan_model_str()
+  fit_model_safe <- eventReactive(input$run_model, {
+    ln <- isolate(lavaan_model_str())
     if (length(ln) == 0)
       return(list(ok = FALSE,
                   msg_friendly = "Define a model to proceed.",
@@ -465,7 +481,7 @@ server <- function(input, output, session) {
            msg_friendly = "Estimation failed: possible perfect correlation (r = 1). Remove duplicate variables or merge them, then re-run.",
            fit = NULL)
     })
-  })
+  }, ignoreNULL = FALSE)  # 初回自動実行
 
   output$fit_alert <- renderText({
     msg <- fit_model_safe()$msg_friendly
