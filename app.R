@@ -121,8 +121,11 @@ ui <- fluidPage(
   title = "Structura",
 
   tabsetPanel(
+
+    # ---------------- Data tab -----------------------------------
     tabPanel("Data", h4("Uploaded Data"), DTOutput("datatable")),
 
+    # -------------- Filtered tab ---------------------------------
     tabPanel("Filtered",
              h4("Filtered Data"),
              uiOutput("log_transform_ui"),
@@ -132,10 +135,12 @@ ui <- fluidPage(
              h4("Correlation Heatmap"),
              plotOutput("corr_heatmap", height = "300px")),
 
+    # ---------------- Model tab ----------------------------------
     tabPanel("Model",
              fluidRow(
+               # ---------- Left column (inputs) -------------------
                column(width = 7,
-                      # ---- Analysis options ----------------------------
+                      # ---- Analysis options -----------------------
                       radioButtons("analysis_mode", "Analysis mode:",
                                    choices  = c("Raw (unstandardized)"  = "raw",
                                                 "Standardized (scaled)" = "std"),
@@ -154,7 +159,10 @@ ui <- fluidPage(
                         checkboxInput("diagram_std",
                                       "Show standardized coefficients in diagram",
                                       value = TRUE)),
-                      # ---------------------------------------------------
+                      # -------------- Run button -------------------
+                      actionButton("run_model", "Run / Update Model",
+                                   class = "btn btn-success"),
+                      tags$hr(),
                       h4("Measurement Model"),
                       rHandsontableOutput("input_table"),
                       actionButton("add_row", "Add Row", class = "btn btn-primary"),
@@ -162,7 +170,6 @@ ui <- fluidPage(
                       h4("Structural Model"),
                       rHandsontableOutput("checkbox_matrix"),
                       tags$hr(),
-                      # ----- Manual equations textbox (追加) -------------
                       h4("Manual Equations"),
                       textAreaInput("extra_eq",
                                     "Additional lavaan syntax (one formula per line):",
@@ -174,39 +181,47 @@ ui <- fluidPage(
                       h4("lavaan Syntax"),
                       verbatimTextOutput("lavaan_model")
                ),
+
+               # ---------- Right column (outputs) -----------------
                column(width = 5,
-                      # ----- NEW: Run button -----------------------------
-                      actionButton("run_model", "Run / Update Model",
-                                   class = "btn btn-success"),
-                      tags$br(), tags$br(),
-                      div(id = "fit_alert_box",
-                          textOutput("fit_alert"),
-                          class = "alert-box"),
-                      h4("Fit Indices"),
-                      DTOutput("fit_indices"),
-                      tags$br(),
-                      h4("Approximate Equations"),
-                      verbatimTextOutput("approx_eq"),
-                      tags$hr(),
-                      h4("Path Diagram Options"),
-                      # ---- unified layout selector --------------------
-                      selectInput("layout_style", "Layout & Engine:",
-                                  choices = c(
-                                    "Hierarchical Left → Right (dot)" = "dot_LR",
-                                    "Hierarchical Top → Bottom (dot)" = "dot_TB",
-                                    "Spring model layout (neato)"      = "neato",
-                                    "Force-Directed Placement (fdp)"   = "fdp",
-                                    "Circular layout (circo)"          = "circo",
-                                    "Radial layout (twopi)"            = "twopi"
-                                  ),
-                                  selected = "dot_LR"),
-                      # -------------------------------------------------
+                      # ---------- Tabset for outputs ---------------
+                      tabsetPanel(id = "right_tabs", type = "tabs",
+
+                                  # ----- Diagnostics tab ---------------------
+                                  tabPanel("Diagnostics",
+                                           div(id = "fit_alert_box",
+                                               textOutput("fit_alert"),
+                                               class = "alert-box"),
+                                           h4("Fit Indices"),
+                                           DTOutput("fit_indices")),
+
+                                  # ----- Equations tab -----------------------
+                                  tabPanel("Equations",
+                                           h4("Approximate Equations"),
+                                           verbatimTextOutput("approx_eq")),
+
+                                  # ----- Diagram settings tab ---------------
+                                  tabPanel("Diagram Settings",
+                                           h4("Path Diagram Options"),
+                                           selectInput("layout_style", "Layout & Engine:",
+                                                       choices = c(
+                                                         "Hierarchical Left → Right (dot)" = "dot_LR",
+                                                         "Hierarchical Top → Bottom (dot)" = "dot_TB",
+                                                         "Spring model layout (neato)"      = "neato",
+                                                         "Force-Directed Placement (fdp)"   = "fdp",
+                                                         "Circular layout (circo)"          = "circo",
+                                                         "Radial layout (twopi)"            = "twopi"
+                                                       ),
+                                                       selected = "dot_LR"))
+                      ),
+                      # ---------- Path diagram --------------------
                       h4("Path Diagram"),
-                      div(style = "max-height:45vh; overflow-y:auto; overflow-x:hidden; border:1px solid #ccc;",
+                      div(style = "height:60vh; overflow-y:auto; overflow-x:hidden; border:1px solid #ccc;",
                           uiOutput("sem_plot_ui"))
                )
              )),
 
+    # ---------------- Details tab --------------------------------
     tabPanel("Details",
              h4("Parameter Estimates"),
              DTOutput("param_tbl"),
@@ -214,6 +229,7 @@ ui <- fluidPage(
              h4("Model Summary"),
              verbatimTextOutput("fit_summary")),
 
+    # ---------------- Help tab -----------------------------------
     tabPanel("Help", includeMarkdown("help.md"))
   )
 )
