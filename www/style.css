@@ -1,11 +1,13 @@
-/* 基本的なスタイリング */
-.btn-primary {
-  background-color: #337ab7;
-  color: white;
-}
+/* Structura – style.css */
+/* ------------------------------------------------------------- */
 
-/* エラーメッセージのスタイル */
-.shiny-output-error {
-  color: red;
-  font-weight: bold;
-}
+#app-logo            { position:absolute; top:8px; right:16px; }
+.modal-header        { background:#f8f9fa; }
+.modal-title         { font-weight:bold; }
+.htDimmed            { background-color:#d9d9d9 !important; color:#777 !important; }
+.shiny-modal .modal-content { border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.15); }
+.shiny-modal .modal-body    { padding:20px !important; }
+.shiny-modal .modal-footer  { padding:10px !important; }
+.alert-box           { background:#fff3cd; border:1px solid #ffeeba; border-radius:6px; padding:10px; margin-bottom:10px; }
+#lavaan_model        { white-space:pre; }
+#approx_eq           { white-space:pre-wrap; }
