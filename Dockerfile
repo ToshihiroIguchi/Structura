@@ -36,4 +36,4 @@ RUN chown -R shiny:shiny /srv/shiny-server/Structura
 EXPOSE 3838
 
 # Shiny Server 起動
-CMD ["/usr/bin/shiny-server", "/srv/shiny-server/Structura"]
+CMD ["/usr/bin/shiny-server"]
