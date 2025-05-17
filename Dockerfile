@@ -48,8 +48,8 @@ RUN cat << 'EOF' > /usr/local/bin/entrypoint.sh
 #!/bin/bash
 # Detect the first non-loopback IPv4 address
 HOST_IP=$(hostname -I | awk '{print $1}')
-echo "Shiny App available locally: http://localhost:3838/Structura"
-echo "Shiny App available on LAN:     http://${HOST_IP}:3838/Structura"
+echo "Shiny App available locally:  http://localhost:3838/Structura"
+echo "Shiny App available on LAN:    http://${HOST_IP}:3838/Structura"
 # Start Shiny Server
 exec /usr/bin/shiny-server
 EOF
@@ -58,4 +58,5 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 # Expose the Shiny Server default port
 EXPOSE 3838
 
-# Use entrypoint to display instructions and launch Shiny Server\ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+# Use entrypoint to display instructions and launch Shiny Server
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
