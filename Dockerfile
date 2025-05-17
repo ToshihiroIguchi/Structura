@@ -20,11 +20,21 @@ RUN R -e "remotes::install_github('ToshihiroIguchi/semDiagram', dependencies=TRU
 # Install CRAN packages required by the Shiny application
 RUN R -e "install.packages(c('shiny', 'shinyjs', 'DT', 'rhandsontable', 'lavaan', 'DiagrammeR', 'ggplot2', 'reshape2', 'markdown', 'scales'), repos='https://cloud.r-project.org/')"
 
-# Remove default Shiny Server sample apps and static welcome/index pages to prevent sample app display
+# Remove default Shiny Server sample apps, sample directories, and static welcome/index pages
 RUN rm -rf /srv/shiny-server/sample-apps \
            /srv/shiny-server/welcome.html \
            /srv/shiny-server/index.html \
-           /srv/shiny-server/*.html
+           /srv/shiny-server/*.html \
+           /srv/shiny-server/01_hello \
+           /srv/shiny-server/02_text \
+           /srv/shiny-server/03_reactivity \
+           /srv/shiny-server/04_mpg \
+           /srv/shiny-server/05_sliders \
+           /srv/shiny-server/06_tabsets \
+           /srv/shiny-server/07_widgets \
+           /srv/shiny-server/09_upload \
+           /srv/shiny-server/10_download \
+           /srv/shiny-server/11_timer
 
 # Copy the Shiny application code to the Shiny Server directory
 COPY . /srv/shiny-server/Structura
