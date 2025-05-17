@@ -1,14 +1,13 @@
 # Use the official rocker/shiny image with Shiny Server pre-installed
 FROM rocker/shiny:latest
 
-# Install system dependencies for building R packages, Git, and network utilities
+# Install system dependencies for building R packages and Git
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       libcurl4-openssl-dev \
       libssl-dev \
       libxml2-dev \
-      git \
-      iproute2 && \
+      git && \
     rm -rf /var/lib/apt/lists/*
 
 # Install remotes package to enable installing GitHub packages
@@ -43,20 +42,16 @@ COPY . /srv/shiny-server/Structura
 # Ensure proper ownership so Shiny Server can serve the files
 RUN chown -R shiny:shiny /srv/shiny-server/Structura
 
-# Create an entrypoint script to display the LAN access address and start Shiny Server
-RUN cat << 'EOF' > /usr/local/bin/entrypoint.sh
-#!/bin/bash
-# Detect the first non-loopback IPv4 address
-HOST_IP=$(hostname -I | awk '{print $1}')
-echo "Shiny App available locally:  http://localhost:3838/Structura"
-echo "Shiny App available on LAN:    http://${HOST_IP}:3838/Structura"
-# Start Shiny Server
-exec /usr/bin/shiny-server
-EOF
-RUN chmod +x /usr/local/bin/entrypoint.sh
-
 # Expose the Shiny Server default port
 EXPOSE 3838
+
+# Create an entrypoint script to display the LAN access address and start Shiny Server
+RUN echo '#!/bin/bash\n\
+HOST_IP=$(hostname -I | awk "{print \$1}")\n\
+echo \"Shiny App available locally:  http://localhost:3838/Structura\"\n\
+echo \"Shiny App available on LAN:    http://$HOST_IP:3838/Structura\"\n\
+exec /usr/bin/shiny-server' > /usr/local/bin/entrypoint.sh && \
+    chmod +x /usr/local/bin/entrypoint.sh
 
 # Use entrypoint to display instructions and launch Shiny Server
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
