@@ -1,7 +1,7 @@
-# ---------- Base image ----------
+# Base image: Use the official rocker/shiny image with Shiny Server pre-installed
 FROM rocker/shiny:latest
 
-# ---------- System libraries ----------
+# Install necessary system libraries and tools
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         libcurl4-openssl-dev \
@@ -11,38 +11,31 @@ RUN apt-get update && \
         iproute2 && \
     rm -rf /var/lib/apt/lists/*
 
-# ---------- R packages ----------
+# Install the 'remotes' package to enable installation of GitHub packages
 RUN R -e "install.packages('remotes', repos='https://cloud.r-project.org/')"
-RUN R -e "remotes::install_github('ToshihiroIguchi/semDiagram', dependencies=TRUE, upgrade='never', build=FALSE, build_vignettes=FALSE)"
-RUN R -e "remotes::install_github('ToshihiroIguchi/readflex',   dependencies=TRUE, upgrade='never', build=FALSE, build_vignettes=FALSE)"
+
+# Install 'semDiagram' and 'readflex' packages from GitHub
+RUN R -e "remotes::install_github('ToshihiroIguchi/semDiagram', dependencies=TRUE, upgrade='never', build=FALSE, build_vignettes=FALSE)" && \
+    R -e "remotes::install_github('ToshihiroIguchi/readflex', dependencies=TRUE, upgrade='never', build=FALSE, build_vignettes=FALSE)"
+
+# Install required CRAN packages for the Shiny application
 RUN R -e "install.packages(c('shiny','shinyjs','DT','rhandsontable','lavaan','DiagrammeR','ggplot2','reshape2','markdown','scales'), repos='https://cloud.r-project.org/')"
 
-# ---------- Clean up sample apps ----------
+# Remove default Shiny Server sample applications and static pages
 RUN rm -rf /srv/shiny-server/sample-apps \
            /srv/shiny-server/welcome.html  \
            /srv/shiny-server/index.html    \
            /srv/shiny-server/*.html        \
            /srv/shiny-server/0*
 
-# ---------- Copy application ----------
+# Copy the Structura application into the Shiny Server directory
 COPY . /srv/shiny-server/Structura
+
+# Set ownership of the application directory to the 'shiny' user
 RUN chown -R shiny:shiny /srv/shiny-server/Structura
 
-# ---------- Entrypoint script ----------
-RUN bash -c 'cat << "EOF" > /usr/local/bin/entrypoint.sh
-#!/usr/bin/env bash
-# Try to get the host-side gateway IP (works under default bridge)
-HOST_IP=$(ip route | awk "/default/ {print \$3; exit}")
-# Fallback: first non-loopback IP inside container (host network modeなど)
-[ -z "\$HOST_IP" ] && HOST_IP=$(hostname -I | awk "{print \$1}")
-
-echo "Shiny App available locally : http://localhost:3838/Structura"
-echo "Shiny App available on LAN  : http://\${HOST_IP}:3838/Structura"
-
-exec /usr/bin/shiny-server
-EOF
-chmod +x /usr/local/bin/entrypoint.sh'
-
-# ---------- Expose port & start ----------
+# Expose the default Shiny Server port
 EXPOSE 3838
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+
+# Start the Shiny Server
+CMD ["/usr/bin/shiny-server"]
