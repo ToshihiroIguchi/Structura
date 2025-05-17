@@ -35,15 +35,15 @@ COPY . /srv/shiny-server/Structura
 RUN chown -R shiny:shiny /srv/shiny-server/Structura
 
 # Create an entrypoint script that prints LAN URL and starts Shiny Server
-RUN bash -c 'cat <<"EOS" > /usr/local/bin/entrypoint.sh
+RUN bash -c 'cat <<\"EOS\" > /usr/local/bin/entrypoint.sh
 #!/bin/bash
 # Detect host-side gateway IP reachable from this container
-HOST_IP=$(ip route get 8.8.8.8 | awk "NR==1 {print \$3}")
+HOST_IP=$(ip route get 8.8.8.8 | awk \"NR==1 {print \\$3}\")
 # Fallback when ip route fails (e.g., host mode)
-if [ -z "${HOST_IP}" ]; then HOST_IP=$(hostname -I | awk "{print \$1}"); fi
+if [ -z \"${HOST_IP}\" ]; then HOST_IP=$(hostname -I | awk \"{print \\$1}\"); fi
 
-echo "Shiny App available locally : http://localhost:3838/Structura"
-echo "Shiny App available on LAN  : http://${HOST_IP}:3838/Structura"
+echo \"Shiny App available locally : http://localhost:3838/Structura\"
+echo \"Shiny App available on LAN  : http://${HOST_IP}:3838/Structura\"
 
 exec /usr/bin/shiny-server
 EOS' && chmod +x /usr/local/bin/entrypoint.sh
