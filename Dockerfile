@@ -13,9 +13,9 @@ RUN apt-get update && \
 
 # ---------- R packages ----------
 RUN R -e "install.packages('remotes', repos='https://cloud.r-project.org/')"
-RUN R -e "remotes::install_github('ToshihiroIguchi/semDiagram', dependencies = TRUE, upgrade = 'never', build = FALSE, build_vignettes = FALSE)"
-RUN R -e "remotes::install_github('ToshihiroIguchi/readflex',   dependencies = TRUE, upgrade = 'never', build = FALSE, build_vignettes = FALSE)"
-RUN R -e "install.packages(c('shiny','shinyjs','DT','rhandsontable','lavaan','DiagrammeR','ggplot2','reshape2','markdown','scales'), repos = 'https://cloud.r-project.org/')"
+RUN R -e "remotes::install_github('ToshihiroIguchi/semDiagram', dependencies=TRUE, upgrade='never', build=FALSE, build_vignettes=FALSE)"
+RUN R -e "remotes::install_github('ToshihiroIguchi/readflex',   dependencies=TRUE, upgrade='never', build=FALSE, build_vignettes=FALSE)"
+RUN R -e "install.packages(c('shiny','shinyjs','DT','rhandsontable','lavaan','DiagrammeR','ggplot2','reshape2','markdown','scales'), repos='https://cloud.r-project.org/')"
 
 # ---------- Clean up sample apps ----------
 RUN rm -rf /srv/shiny-server/sample-apps \
@@ -31,16 +31,17 @@ RUN chown -R shiny:shiny /srv/shiny-server/Structura
 # ---------- Entrypoint script ----------
 RUN bash -c 'cat << "EOF" > /usr/local/bin/entrypoint.sh
 #!/usr/bin/env bash
-# Detect host-side IP (bridge gateway) — falls back to first non-loopback IP
+# Try to get the host-side gateway IP (works under default bridge)
 HOST_IP=$(ip route | awk "/default/ {print \$3; exit}")
+# Fallback: first non-loopback IP inside container (host network modeなど)
 [ -z "\$HOST_IP" ] && HOST_IP=$(hostname -I | awk "{print \$1}")
 
 echo "Shiny App available locally : http://localhost:3838/Structura"
-echo "Shiny App available on LAN  : http://\$HOST_IP:3838/Structura"
+echo "Shiny App available on LAN  : http://\${HOST_IP}:3838/Structura"
 
 exec /usr/bin/shiny-server
-EOF'
-RUN chmod +x /usr/local/bin/entrypoint.sh
+EOF
+chmod +x /usr/local/bin/entrypoint.sh'
 
 # ---------- Expose port & start ----------
 EXPOSE 3838
