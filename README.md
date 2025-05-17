@@ -24,6 +24,7 @@ Structura is an interactive Shiny application for Structural Equation Modeling (
 Install required packages from github and CRAN:
 
 ```r
+install.packages("devtools")
 devtools::install_github("ToshihiroIguchi/semDiagram", dependencies = TRUE, upgrade = "never", build = FALSE, build_vignettes = FALSE)
 devtools::install_github("ToshihiroIguchi/readflex", dependencies = TRUE, upgrade = "never", build = FALSE, build_vignettes = FALSE)
 install.packages(c("shiny", "shinyjs", "DT", "rhandsontable", "lavaan", "DiagrammeR", "ggplot2", "reshape2", "markdown", "scales"))
