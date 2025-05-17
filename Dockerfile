@@ -21,21 +21,12 @@ RUN R -e "remotes::install_github('ToshihiroIguchi/semDiagram', dependencies=TRU
 # Install CRAN packages required by the Shiny application
 RUN R -e "install.packages(c('shiny', 'shinyjs', 'DT', 'rhandsontable', 'lavaan', 'DiagrammeR', 'ggplot2', 'reshape2', 'markdown', 'scales'), repos='https://cloud.r-project.org/')"
 
-# Remove default Shiny Server sample apps, sample directories, and static welcome/index pages
+# Remove default Shiny Server sample apps and static pages
 RUN rm -rf /srv/shiny-server/sample-apps \
            /srv/shiny-server/welcome.html \
            /srv/shiny-server/index.html \
            /srv/shiny-server/*.html \
-           /srv/shiny-server/01_hello \
-           /srv/shiny-server/02_text \
-           /srv/shiny-server/03_reactivity \
-           /srv/shiny-server/04_mpg \
-           /srv/shiny-server/05_sliders \
-           /srv/shiny-server/06_tabsets \
-           /srv/shiny-server/07_widgets \
-           /srv/shiny-server/09_upload \
-           /srv/shiny-server/10_download \
-           /srv/shiny-server/11_timer
+           /srv/shiny-server/0*
 
 # Copy the Shiny application code to the Shiny Server directory
 COPY . /srv/shiny-server/Structura
@@ -43,20 +34,22 @@ COPY . /srv/shiny-server/Structura
 # Ensure proper ownership so Shiny Server can serve the files
 RUN chown -R shiny:shiny /srv/shiny-server/Structura
 
-# Create an entrypoint script to display the LAN access address and start Shiny Server
-RUN cat << 'EOF' > /usr/local/bin/entrypoint.sh
+# Create an entrypoint script that prints LAN URL and starts Shiny Server
+RUN bash -c 'cat <<"EOS" > /usr/local/bin/entrypoint.sh
 #!/bin/bash
-# Detect the host's LAN IP by querying route to external address
-HOST_IP=$(ip route get 8.8.8.8 | awk 'NR==1 {print $3}')
-echo "Shiny App available locally:  http://localhost:3838/Structura"
-echo "Shiny App available on LAN:    http://${HOST_IP}:3838/Structura"
-# Start Shiny Server
-exec /usr/bin/shiny-server
-EOF
-RUN chmod +x /usr/local/bin/entrypoint.sh
+# Detect host-side gateway IP reachable from this container
+HOST_IP=$(ip route get 8.8.8.8 | awk "NR==1 {print \$3}")
+# Fallback when ip route fails (e.g., host mode)
+if [ -z "${HOST_IP}" ]; then HOST_IP=$(hostname -I | awk "{print \$1}"); fi
 
-# Expose the Shiny Server default port
+echo "Shiny App available locally : http://localhost:3838/Structura"
+echo "Shiny App available on LAN  : http://${HOST_IP}:3838/Structura"
+
+exec /usr/bin/shiny-server
+EOS' && chmod +x /usr/local/bin/entrypoint.sh
+
+# Expose Shiny Server port
 EXPOSE 3838
 
-# Use entrypoint to display instructions and launch Shiny Server
+# Launch using the entrypoint script
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
