@@ -116,6 +116,38 @@ shiny::runGitHub(
 )
 ```
 
+## Docker Deployment
+
+You can build and run Structura inside Docker with just two commands:
+
+```bash
+# 1. Build the Docker image from the GitHub repo's main branch
+docker build -t structura https://github.com/ToshihiroIguchi/Structura.git#main
+
+# 2. Run the container in detached mode, name it "structura", 
+#    and map host port 3838 to container port 3838
+docker run -d --name structura -p 3838:3838 structura
+```
+After the container starts, open your browser and visit
+`http://localhost:3838/Structura/`
+to access the application.
+
+Find your host’s LAN IP:
+```bash
+ip addr show
+# or on Windows: ipconfig
+```
+Then point your browser to `http://<HOST_IP>:3838/Structura/`
+
+
+You can stop the app with:
+```bash
+docker stop structura
+```
+and remove the container with:
+```bash
+docker rm structura
+```
 
 ## Image
 <br>
