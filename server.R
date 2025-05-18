@@ -10,15 +10,23 @@ server <- function(input, output, session) {
   showModal(
     modalDialog(
       title = span(icon("upload"), "Load Data"),
-      fileInput("datafile", NULL,
-                buttonLabel = "Browse…",
-                placeholder  = "Upload CSV",
-                accept       = c(".csv", "text/csv", "application/csv")),
-      tags$hr(),
-      radioButtons("sample_ds", "Or choose a demo dataset:",
-                   choices = c("None", "HolzingerSwineford1939",
-                               "PoliticalDemocracy", "Demo.growth",
-                               "Demo.twolevel", "FacialBurns")),
+      tabsetPanel(
+        tabPanel("Upload File",
+                 fileInput("datafile", NULL,
+                           buttonLabel = "Browse…",
+                           placeholder  = "Upload CSV",
+                           accept       = c(".csv", "text/csv", "application/csv"))
+        ),
+        tabPanel("Sample Dataset",
+                 radioButtons("sample_ds", "Or choose a demo dataset:",
+                              choices = c("None",
+                                          "HolzingerSwineford1939",
+                                          "PoliticalDemocracy",
+                                          "Demo.growth",
+                                          "Demo.twolevel",
+                                          "FacialBurns"))
+        )
+      ),
       easyClose = FALSE,
       footer    = NULL
     )
