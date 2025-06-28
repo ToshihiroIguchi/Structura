@@ -1,7 +1,7 @@
 # Model Management Module
 # Handles SEM model specification, fitting, and results
 
-model_module_server <- function(input, output, session, data_module) {
+model_module_server <- function(input, output, session, shared_values, data_module) {
   
   # Measurement model table data
   input_table_data <- reactiveVal(NULL)
@@ -166,7 +166,11 @@ model_module_server <- function(input, output, session, data_module) {
         NULL
       }
       
-      unlist(c(mlines, slines, extra))
+      model_syntax <- unlist(c(mlines, slines, extra))
+      
+      # Update shared values
+      shared_values$model_syntax <- model_syntax
+      model_syntax
       
     }, error = function(e) {
       showNotification(
@@ -214,7 +218,7 @@ model_module_server <- function(input, output, session, data_module) {
       
       converged <- lavInspect(fm, "converged")
       
-      list(
+      fit_result <- list(
         ok = converged,
         msg_friendly = if (converged) {
           ""
@@ -223,6 +227,10 @@ model_module_server <- function(input, output, session, data_module) {
         },
         fit = fm
       )
+      
+      # Update shared values
+      shared_values$fit_model <- fit_result
+      fit_result
       
     }, error = function(e) {
       error_msg <- if (grepl("covariance matrix", e$message, ignore.case = TRUE)) {
@@ -233,11 +241,15 @@ model_module_server <- function(input, output, session, data_module) {
         paste("Estimation failed:", e$message)
       }
       
-      list(
+      error_result <- list(
         ok = FALSE,
         msg_friendly = error_msg,
         fit = NULL
       )
+      
+      # Update shared values
+      shared_values$fit_model <- error_result
+      error_result
     })
   }, ignoreNULL = FALSE)
   

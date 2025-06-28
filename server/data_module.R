@@ -1,7 +1,7 @@
 # Data Management Module
 # Handles data loading, preprocessing, and display
 
-data_module_server <- function(input, output, session) {
+data_module_server <- function(input, output, session, shared_values) {
   
   # Reactive data store
   data <- reactiveVal(NULL)
@@ -135,6 +135,8 @@ data_module_server <- function(input, output, session) {
         }
       }
       
+      # Update shared values
+      shared_values$processed_data <- df
       df
       
     }, error = function(e) {
