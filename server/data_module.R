@@ -3,6 +3,25 @@
 
 data_module_server <- function(input, output, session, shared_values) {
   
+  # Helper function to format numeric columns for display
+  format_numeric_for_display <- function(df) {
+    formatted_df <- df
+    for (i in seq_along(formatted_df)) {
+      if (is.numeric(formatted_df[[i]])) {
+        formatted_df[[i]] <- sapply(formatted_df[[i]], function(x) {
+          if (is.na(x)) {
+            return(NA_character_)
+          } else if (abs(x) >= 1000 || (abs(x) < 0.001 && x != 0)) {
+            return(sprintf("%.3e", x))
+          } else {
+            return(sprintf("%.3f", x))
+          }
+        })
+      }
+    }
+    return(formatted_df)
+  }
+  
   # Reactive data store
   data <- reactiveVal(NULL)
   
@@ -65,10 +84,19 @@ data_module_server <- function(input, output, session, shared_values) {
   # Data preview table
   output$datatable <- renderDT({
     req(data())
-    datatable(data(), 
+    formatted_data <- format_numeric_for_display(data())
+    
+    datatable(formatted_data, 
               filter = "top", 
               editable = FALSE,
-              options = list(pageLength = 30, autoWidth = TRUE),
+              options = list(
+                pageLength = 30, 
+                autoWidth = TRUE,
+                scrollX = TRUE,
+                columnDefs = list(
+                  list(targets = "_all", className = "dt-center")
+                )
+              ),
               rownames = FALSE)
   }, server = FALSE)
   
@@ -175,9 +203,17 @@ data_module_server <- function(input, output, session, shared_values) {
       df <- df[, intersect(input$display_columns, names(df)), drop = FALSE]
     }
     
-    datatable(df, 
+    formatted_df <- format_numeric_for_display(df)
+    
+    datatable(formatted_df, 
               editable = FALSE, 
-              options = list(pageLength = 10))
+              options = list(
+                pageLength = 10,
+                scrollX = TRUE,
+                columnDefs = list(
+                  list(targets = "_all", className = "dt-center")
+                )
+              ))
   })
   
   # Return reactive values for other modules

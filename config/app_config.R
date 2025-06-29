@@ -81,7 +81,8 @@ apply_shiny_config <- function(config = NULL) {
   options(
     shiny.fullstacktrace = config$shiny.fullstacktrace,
     shiny.reactlog = config$shiny.reactlog,
-    shiny.sanitize.errors = config$shiny.sanitize.errors
+    shiny.sanitize.errors = config$shiny.sanitize.errors,
+    shiny.maxRequestSize = 50 * 1024^2  # 50MB file upload limit
   )
   
   # Apply autoreload if available

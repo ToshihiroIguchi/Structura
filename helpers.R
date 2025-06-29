@@ -62,5 +62,131 @@ lavaan_to_equations <- function(fit, digits = 3) {
 # ---- File loader ------------------------------------------------
 loadDataOnce <- function(fileInput) {
   req(fileInput)
-  readflex(fileInput$datapath, stringsAsFactors = FALSE)
+  
+  # File validation and quality checks
+  validateUploadedFile(fileInput)
+  
+  # Load data with error handling
+  data <- safe_execute({
+    readflex(fileInput$datapath, stringsAsFactors = FALSE)
+  }, error_msg = "Failed to read file", fallback = NULL)
+  
+  if (is.null(data)) {
+    stop("File could not be loaded")
+  }
+  
+  # Post-load data quality validation
+  validateDataQuality(data, fileInput$name)
+  
+  return(data)
+}
+
+# File upload validation function
+validateUploadedFile <- function(fileInput) {
+  # Check file extension
+  ext <- tolower(tools::file_ext(fileInput$name))
+  allowed_extensions <- c("csv", "txt", "tsv", "data")
+  
+  if (!ext %in% allowed_extensions) {
+    stop(paste("Invalid file type. Allowed formats:", paste(allowed_extensions, collapse = ", ")))
+  }
+  
+  # Check file size (additional check beyond Shiny default)
+  file_size <- file.info(fileInput$datapath)$size
+  max_size <- 50 * 1024 * 1024  # 50MB limit
+  
+  if (is.na(file_size) || file_size > max_size) {
+    stop(paste("File too large. Maximum size allowed:", round(max_size / 1024 / 1024, 1), "MB"))
+  }
+  
+  if (file_size == 0) {
+    stop("File is empty")
+  }
+  
+  # Basic file content preview check
+  tryCatch({
+    # Read first few lines to validate structure
+    con <- file(fileInput$datapath, "r")
+    first_lines <- readLines(con, n = 3, warn = FALSE)
+    close(con)
+    
+    if (length(first_lines) == 0) {
+      stop("File appears to be empty or unreadable")
+    }
+    
+    # Check for potential binary content
+    if (any(grepl("[\\x01-\\x08\\x0E-\\x1F\\x7F]", first_lines, perl = TRUE))) {
+      stop("File appears to contain binary data. Please upload a text-based CSV file")
+    }
+    
+  }, error = function(e) {
+    if (grepl("binary data", e$message)) {
+      stop(e$message)
+    }
+    stop("Unable to validate file content. Please ensure file is a valid CSV format")
+  })
+}
+
+# Data quality validation function
+validateDataQuality <- function(data, filename) {
+  # Check if data.frame was successfully created
+  if (!is.data.frame(data)) {
+    stop("File does not contain valid tabular data")
+  }
+  
+  # Check dimensions
+  if (nrow(data) == 0) {
+    stop("File contains no data rows")
+  }
+  
+  if (ncol(data) == 0) {
+    stop("File contains no columns")
+  }
+  
+  # Reasonable limits for SEM analysis
+  if (nrow(data) > 50000) {
+    stop(paste("Dataset too large for analysis. Maximum 50,000 rows allowed. Your file has", nrow(data), "rows"))
+  }
+  
+  if (ncol(data) > 200) {
+    stop(paste("Too many variables for analysis. Maximum 200 columns allowed. Your file has", ncol(data), "columns"))
+  }
+  
+  # Check for reasonable sample size for SEM
+  if (nrow(data) < 3) {
+    stop("Insufficient sample size. Minimum 3 observations required for analysis")
+  }
+  
+  # Check for at least some numeric data
+  numeric_cols <- sapply(data, function(x) is.numeric(x) || (is.character(x) && all(grepl("^-?[0-9]*\\.?[0-9]+$", x[!is.na(x) & x != ""], perl = TRUE))))
+  
+  if (sum(numeric_cols) < 2) {
+    stop("File must contain at least 2 numeric variables for structural equation modeling")
+  }
+  
+  # Memory estimation check
+  estimated_memory <- object.size(data)
+  max_memory <- 100 * 1024 * 1024  # 100MB
+  
+  if (estimated_memory > max_memory) {
+    stop(paste("Dataset requires too much memory:", round(as.numeric(estimated_memory) / 1024 / 1024, 1), "MB. Maximum allowed:", round(max_memory / 1024 / 1024, 1), "MB"))
+  }
+  
+  # Check for excessive missing data
+  missing_proportion <- sum(is.na(data)) / (nrow(data) * ncol(data))
+  if (missing_proportion > 0.5) {
+    warning(paste("High proportion of missing data detected:", round(missing_proportion * 100, 1), "%. This may affect analysis quality"))
+  }
+  
+  # Check for duplicate column names
+  if (any(duplicated(names(data)))) {
+    duplicate_names <- names(data)[duplicated(names(data))]
+    stop(paste("Duplicate column names detected:", paste(duplicate_names, collapse = ", ")))
+  }
+  
+  # Check for problematic column names
+  problematic_names <- names(data)[grepl("^[0-9]|[^a-zA-Z0-9._]", names(data))]
+  if (length(problematic_names) > 0) {
+    warning(paste("Some column names may cause issues in analysis:", paste(head(problematic_names, 3), collapse = ", "), ". Consider renaming columns to start with letters and use only letters, numbers, dots, and underscores"))
+  }
 }
