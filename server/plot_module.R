@@ -33,24 +33,61 @@ plot_module_server <- function(input, output, session, shared_values) {
   # Render correlation heatmap
   output$corr_heatmap <- renderPlot({
     cache_data <- correlation_cache()
-    req(cache_data)
+    
+    # Show message when no data available
+    if (is.null(cache_data)) {
+      plot(1, type = "n", axes = FALSE, xlab = "", ylab = "")
+      text(1, 1, "Select at least 2 numeric variables to display correlation heatmap", 
+           cex = 1.2, col = "gray50")
+      return()
+    }
     
     tryCatch({
       cm <- cache_data$matrix
-      mf <- reshape2::melt(round(cm, 3))
+      n <- nrow(cm)
       
-      ggplot(mf, aes(x = Var2, y = Var1, fill = value)) +
-        geom_tile() +
-        geom_text(aes(label = sprintf('%.3f', value))) +
-        scale_fill_gradient2(midpoint = 0, 
-                             low = "blue", mid = "white", high = "red") +
-        theme_minimal() +
-        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-        labs(x = NULL, y = NULL, fill = "Correlation")
+      # Remove upper triangle and diagonal (keep only lower triangle)
+      cm_display <- cm
+      cm_display[upper.tri(cm_display, diag = TRUE)] <- NA
+      
+      # Create color palette
+      col_palette <- colorRampPalette(c("blue", "white", "red"))(100)
+      
+      # Create the heatmap using base R image()
+      # image() displays matrix with (1,1) at bottom-left, so we need to flip Y-axis
+      par(mar = c(5, 5, 2, 5))
+      image(1:n, 1:n, cm_display[n:1, ], 
+            col = col_palette, 
+            breaks = seq(-1, 1, length.out = 101),
+            xlab = "", ylab = "", 
+            axes = FALSE,
+            main = "Correlation Matrix")
+      
+      # Add variable names
+      axis(1, at = 1:n, labels = colnames(cm), las = 2, cex.axis = 0.8)
+      axis(2, at = 1:n, labels = rev(rownames(cm)), las = 2, cex.axis = 0.8)
+      
+      # Add correlation values as text
+      # For each original matrix position (i,j), display position is (j, n-i+1)
+      for (i in 1:n) {
+        for (j in 1:n) {
+          if (!is.na(cm_display[i, j])) {
+            display_y <- n - i + 1
+            text(j, display_y, sprintf("%.3f", cm_display[i, j]), 
+                 cex = 0.7, col = ifelse(abs(cm_display[i, j]) > 0.5, "white", "black"))
+          }
+        }
+      }
+      
+      # Add color legend
+      legend("right", legend = sprintf("%.1f", seq(-1, 1, by = 0.5)), 
+             fill = col_palette[c(1, 25, 50, 75, 100)], 
+             title = "Correlation", cex = 0.8)
         
     }, error = function(e) {
       plot(1, type = "n", axes = FALSE, xlab = "", ylab = "")
-      text(1, 1, paste("Correlation plot error:", e$message), cex = 0.8)
+      text(1, 1, "Unable to generate correlation plot.\nPlease ensure you have selected numeric variables with valid data.", 
+           cex = 1.0, col = "red")
     })
   })
   
