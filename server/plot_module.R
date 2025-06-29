@@ -68,13 +68,15 @@ plot_module_server <- function(input, output, session, shared_values) {
       axis(2, at = 1:n, labels = rev(rownames(cm)), las = 2, cex.axis = 0.8)
       
       # Add correlation values as text
-      # Since we use cm_display[n:1, ] in image(), we need to map coordinates correctly
-      # Original matrix (i,j) maps to display coordinates (j, i) because of the flip
+      # image() displays matrix with (1,1) at bottom-left
+      # cm_display[n:1, ] flips Y-axis, so original (i,j) -> display (j, n-i+1)
       for (i in 1:n) {
         for (j in 1:n) {
           if (!is.na(cm_display[i, j])) {
-            # Display coordinates: x=j, y=i (since we flipped the matrix with [n:1, ])
-            text(j, i, sprintf("%.3f", cm_display[i, j]), 
+            # Map to display coordinates correctly
+            display_x <- j
+            display_y <- n - i + 1
+            text(display_x, display_y, sprintf("%.3f", cm_display[i, j]), 
                  cex = 0.7, col = ifelse(abs(cm_display[i, j]) > 0.5, "white", "black"))
           }
         }
