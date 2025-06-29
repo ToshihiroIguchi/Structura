@@ -59,3 +59,85 @@ safe_execute <- function(expr, error_msg = "Operation failed", notify = TRUE, fa
     suppressWarnings(expr)
   })
 }
+
+# Validate lavaan syntax input for security and correctness
+validate_lavaan_syntax <- function(syntax_text) {
+  if (is.null(syntax_text) || !is.character(syntax_text) || length(syntax_text) != 1) {
+    return(list(valid = FALSE, message = "Invalid input format"))
+  }
+  
+  # Remove leading/trailing whitespace
+  cleaned_text <- trimws(syntax_text)
+  
+  # Return valid if empty (no equations to add)
+  if (nchar(cleaned_text) == 0) {
+    return(list(valid = TRUE, message = ""))
+  }
+  
+  # Split into individual lines
+  lines <- strsplit(cleaned_text, "\n")[[1]]
+  lines <- trimws(lines)
+  lines <- lines[nzchar(lines)]  # Remove empty lines
+  
+  # Security checks - prevent dangerous patterns
+  dangerous_patterns <- c(
+    "system\\s*\\(",     # system() calls
+    "eval\\s*\\(",       # eval() calls  
+    "source\\s*\\(",     # source() calls
+    "library\\s*\\(",    # library() calls
+    "require\\s*\\(",    # require() calls
+    "setwd\\s*\\(",      # setwd() calls
+    "file\\.",           # file operations
+    "unlink\\s*\\(",     # file deletion
+    "write\\.",          # write operations
+    "save\\s*\\(",       # save operations
+    "load\\s*\\(",       # load operations
+    "rm\\s*\\(",         # object removal
+    "remove\\s*\\(",     # object removal
+    "get\\s*\\(",        # environment access
+    "assign\\s*\\(",     # environment assignment
+    "<<-",               # global assignment
+    "->>"                # reverse global assignment
+  )
+  
+  for (pattern in dangerous_patterns) {
+    if (any(grepl(pattern, lines, ignore.case = TRUE))) {
+      return(list(valid = FALSE, message = "Invalid syntax: potentially unsafe operations detected"))
+    }
+  }
+  
+  # Basic lavaan syntax validation
+  valid_operators <- c("=~", "~", "~~", "~1", ":=", "<", ">", "==")
+  
+  for (line in lines) {
+    # Skip comments
+    if (grepl("^\\s*#", line)) next
+    
+    # Check if line contains at least one valid lavaan operator
+    has_valid_operator <- any(sapply(valid_operators, function(op) grepl(paste0("\\", op), line, fixed = TRUE)))
+    
+    if (!has_valid_operator) {
+      return(list(valid = FALSE, message = paste("Invalid syntax on line:", line)))
+    }
+    
+    # Check for basic variable name patterns (alphanumeric, dots, underscores)
+    # Remove operators and check remaining tokens
+    temp_line <- line
+    for (op in valid_operators) {
+      temp_line <- gsub(paste0("\\", op), " ", temp_line, fixed = TRUE)
+    }
+    
+    # Extract potential variable names
+    tokens <- unlist(strsplit(temp_line, "[\\s\\+\\*\\-\\(\\)\\[\\]\\{\\}\\,\\;]+"))
+    tokens <- tokens[nzchar(tokens)]
+    
+    # Check each token is a valid variable name or number
+    for (token in tokens) {
+      if (!grepl("^[a-zA-Z][a-zA-Z0-9\\._]*$|^[0-9\\.]+$", token)) {
+        return(list(valid = FALSE, message = paste("Invalid variable name:", token)))
+      }
+    }
+  }
+  
+  return(list(valid = TRUE, message = "Syntax appears valid"))
+}

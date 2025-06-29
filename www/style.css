@@ -4,7 +4,6 @@
 #app-logo            { position:absolute; top:8px; right:16px; }
 .modal-header        { background:#f8f9fa; }
 .modal-title         { font-weight:bold; }
-.htDimmed            { background-color:#d9d9d9 !important; color:#777 !important; }
 .shiny-modal .modal-content { border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.15); }
 .shiny-modal .modal-body    { padding:20px !important; }
 .shiny-modal .modal-footer  { padding:10px !important; }

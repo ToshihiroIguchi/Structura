@@ -244,8 +244,20 @@ model_module_server <- function(input, output, session, shared_values, data_modu
         paste0(dp, " ~ ", paste(ps, collapse = " + "))
       })
       
-      # Additional equations
+      # Additional equations with validation
       extra <- if (!is.null(input$extra_eq)) {
+        # Validate manual equations for security and syntax
+        validation_result <- validate_lavaan_syntax(input$extra_eq)
+        
+        if (!validation_result$valid) {
+          showNotification(
+            paste("Manual equations error:", validation_result$message),
+            type = "error",
+            duration = 5
+          )
+          return(character(0))
+        }
+        
         extra_lines <- strsplit(input$extra_eq, "\\n")[[1]]
         extra_lines <- trimws(extra_lines)
         extra_lines[nzchar(extra_lines)]
