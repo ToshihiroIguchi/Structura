@@ -210,51 +210,50 @@ data_module_server <- function(input, output, session, shared_values) {
         if (ncol(numeric_data) >= 2 && nrow(numeric_data) >= 3) {
           correlation_matrix <- cor(numeric_data, use = "pairwise.complete.obs")
           
-          # Detect dummy variable groups (variables with same prefix)
+          # Detect dummy variable groups (simplified and safe approach)
           detect_dummy_groups <- function(var_names) {
             groups <- list()
             
-            # Pattern 1: Variables with common prefix (e.g., schoolA, schoolB)
-            for (i in seq_along(var_names)) {
-              name1 <- var_names[i]
-              for (j in seq_along(var_names)) {
-                if (i >= j) next
-                name2 <- var_names[j]
-                
-                # Find common prefix
-                common_prefix <- ""
-                min_len <- min(nchar(name1), nchar(name2))
-                for (k in 1:min_len) {
-                  if (substr(name1, 1, k) == substr(name2, 1, k)) {
-                    common_prefix <- substr(name1, 1, k)
-                  } else {
-                    break
+            # Safe method: Check for specific known patterns
+            # Pattern 1: Variables starting with "school" (model.matrix output)
+            school_vars <- var_names[grepl("^school", var_names, ignore.case = TRUE)]
+            if (length(school_vars) >= 2) {
+              groups[["school"]] <- school_vars
+            }
+            
+            # Pattern 2: Standard underscore separation (e.g., sex_male, sex_female)
+            for (name in var_names) {
+              if (grepl("_", name)) {
+                base_name <- sub("_[^_]*$", "", name)
+                if (nchar(base_name) >= 2) {
+                  if (is.null(groups[[base_name]])) {
+                    groups[[base_name]] <- character(0)
                   }
-                }
-                
-                # If common prefix is substantial (at least 3 chars)
-                if (nchar(common_prefix) >= 3) {
-                  if (is.null(groups[[common_prefix]])) {
-                    groups[[common_prefix]] <- character(0)
-                  }
-                  groups[[common_prefix]] <- unique(c(groups[[common_prefix]], name1, name2))
+                  groups[[base_name]] <- c(groups[[base_name]], name)
                 }
               }
             }
             
-            # Pattern 2: Standard underscore/dot separation
+            # Pattern 3: Variables starting with same word followed by capital letter or number
+            # (e.g., gradeA, gradeB, grade1, grade2)
             for (name in var_names) {
-              base_name <- gsub("\\.[^.]*$|_[^_]*$", "", name)
-              if (base_name != name && base_name != "" && nchar(base_name) >= 2) {
-                if (is.null(groups[[base_name]])) {
-                  groups[[base_name]] <- character(0)
+              # Extract base (letters at start)
+              base_match <- regmatches(name, regexpr("^[a-zA-Z]+", name))
+              if (length(base_match) == 1 && nchar(base_match) >= 3 && base_match != name) {
+                if (is.null(groups[[base_match]])) {
+                  groups[[base_match]] <- character(0)
                 }
-                groups[[base_name]] <- c(groups[[base_name]], name)
+                groups[[base_match]] <- c(groups[[base_match]], name)
               }
             }
             
             # Only return groups with 2+ variables
-            groups[sapply(groups, length) >= 2]
+            final_groups <- groups[sapply(groups, length) >= 2]
+            
+            # Remove duplicates within groups
+            final_groups <- lapply(final_groups, unique)
+            
+            return(final_groups)
           }
           
           dummy_groups <- detect_dummy_groups(names(numeric_data))
