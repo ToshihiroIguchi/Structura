@@ -56,10 +56,13 @@ data_module_server <- function(input, output, session, shared_values) {
   # File upload handler
   observeEvent(input$datafile, {
     tryCatch({
+      write_log("INFO", "File upload initiated", paste("Filename:", input$datafile$name))
       data(loadDataOnce(input$datafile))
       updateRadioButtons(session, "sample_ds", selected = "None")
       removeModal()
+      write_log("INFO", "File upload completed successfully")
     }, error = function(e) {
+      write_log("ERROR", "File upload failed", e$message)
       showNotification(
         paste("File loading failed:", e$message),
         type = "error",
@@ -177,6 +180,160 @@ data_module_server <- function(input, output, session, shared_values) {
     })
   })
   
+  # Real-time data quality assessment
+  data_quality_report <- reactive({
+    req(processed_data())
+    df <- processed_data()
+    
+    tryCatch({
+      numeric_data <- df[sapply(df, is.numeric)]
+      
+      quality_issues <- list(
+        zero_variance = character(0),
+        perfect_correlations = character(0),
+        high_correlations = character(0),
+        dummy_variables = character(0),
+        summary = "No significant data quality issues detected"
+      )
+      
+      if (ncol(numeric_data) >= 2) {
+        # Check zero variance
+        zero_variance_vars <- names(numeric_data)[sapply(numeric_data, function(x) {
+          clean_x <- x[!is.na(x)]
+          if (length(clean_x) < 2) return(TRUE)
+          var(clean_x, na.rm = TRUE) == 0 || sd(clean_x, na.rm = TRUE) < 1e-10
+        })]
+        
+        quality_issues$zero_variance <- zero_variance_vars
+        
+        # Check correlations if sufficient data
+        if (ncol(numeric_data) >= 2 && nrow(numeric_data) >= 3) {
+          correlation_matrix <- cor(numeric_data, use = "pairwise.complete.obs")
+          
+          # Detect dummy variable groups (variables with same prefix before underscore)
+          detect_dummy_groups <- function(var_names) {
+            groups <- list()
+            for (name in var_names) {
+              # Extract base name (everything before last underscore or dot)
+              base_name <- gsub("\\.[^.]*$|_[^_]*$", "", name)
+              if (base_name != name && base_name != "") {
+                if (is.null(groups[[base_name]])) {
+                  groups[[base_name]] <- character(0)
+                }
+                groups[[base_name]] <- c(groups[[base_name]], name)
+              }
+            }
+            # Only return groups with 2+ variables
+            groups[sapply(groups, length) >= 2]
+          }
+          
+          dummy_groups <- detect_dummy_groups(names(numeric_data))
+          
+          # Function to check if correlation is due to dummy variable constraint
+          is_dummy_constraint <- function(var1, var2) {
+            for (group in dummy_groups) {
+              if (var1 %in% group && var2 %in% group) {
+                # Check if these could be complementary dummy variables
+                data_subset <- numeric_data[, group, drop = FALSE]
+                row_sums <- rowSums(data_subset, na.rm = TRUE)
+                # If row sums are approximately constant, likely dummy constraint
+                if (sd(row_sums, na.rm = TRUE) < 0.01) {
+                  return(TRUE)
+                }
+              }
+            }
+            return(FALSE)
+          }
+          
+          # Perfect correlations (excluding dummy constraints)
+          perfect_correlations <- which(abs(correlation_matrix) >= 0.999 & correlation_matrix != 1, arr.ind = TRUE)
+          if (nrow(perfect_correlations) > 0) {
+            perfect_pairs <- character(0)
+            processed_pairs <- character(0)
+            
+            for (i in seq_len(nrow(perfect_correlations))) {
+              row_idx <- perfect_correlations[i, 1]
+              col_idx <- perfect_correlations[i, 2]
+              var1 <- rownames(correlation_matrix)[row_idx]
+              var2 <- colnames(correlation_matrix)[col_idx]
+              
+              # Skip if this is a dummy variable constraint
+              if (is_dummy_constraint(var1, var2)) {
+                next
+              }
+              
+              pair_key <- paste(sort(c(var1, var2)), collapse = "-")
+              if (!pair_key %in% processed_pairs) {
+                correlation_value <- round(correlation_matrix[row_idx, col_idx], 4)
+                perfect_pairs <- c(perfect_pairs, paste0(var1, " & ", var2, " (r=", correlation_value, ")"))
+                processed_pairs <- c(processed_pairs, pair_key)
+              }
+            }
+            quality_issues$perfect_correlations <- perfect_pairs
+          }
+          
+          # High correlations
+          high_correlations <- which(abs(correlation_matrix) >= 0.95 & abs(correlation_matrix) < 0.999 & correlation_matrix != 1, arr.ind = TRUE)
+          if (nrow(high_correlations) > 0) {
+            high_pairs <- character(0)
+            processed_pairs <- character(0)
+            
+            for (i in seq_len(nrow(high_correlations))) {
+              row_idx <- high_correlations[i, 1]
+              col_idx <- high_correlations[i, 2]
+              var1 <- rownames(correlation_matrix)[row_idx]
+              var2 <- colnames(correlation_matrix)[col_idx]
+              
+              # Skip if this is a dummy variable constraint
+              if (is_dummy_constraint(var1, var2)) {
+                next
+              }
+              
+              pair_key <- paste(sort(c(var1, var2)), collapse = "-")
+              if (!pair_key %in% processed_pairs) {
+                correlation_value <- round(correlation_matrix[row_idx, col_idx], 3)
+                high_pairs <- c(high_pairs, paste0(var1, " & ", var2, " (r=", correlation_value, ")"))
+                processed_pairs <- c(processed_pairs, pair_key)
+              }
+            }
+            quality_issues$high_correlations <- head(high_pairs, 5)
+          }
+          
+          # Add dummy variable information
+          if (length(dummy_groups) > 0) {
+            dummy_info <- character(0)
+            for (group_name in names(dummy_groups)) {
+              group_vars <- dummy_groups[[group_name]]
+              dummy_info <- c(dummy_info, paste0(group_name, ": ", paste(group_vars, collapse = ", ")))
+            }
+            quality_issues$dummy_variables <- dummy_info
+          } else {
+            quality_issues$dummy_variables <- character(0)
+          }
+        }
+      }
+      
+      # Generate summary
+      issues_count <- length(quality_issues$zero_variance) + 
+                     length(quality_issues$perfect_correlations) + 
+                     length(quality_issues$high_correlations)
+      
+      if (issues_count > 0) {
+        quality_issues$summary <- paste("Data quality issues detected:", issues_count, "potential problems found")
+      }
+      
+      quality_issues
+      
+    }, error = function(e) {
+      list(
+        zero_variance = character(0),
+        perfect_correlations = character(0),
+        high_correlations = character(0),
+        summary = "Unable to perform data quality assessment"
+      )
+    })
+  })
+  
   # Column selector UI
   output$display_column_ui <- renderUI({
     df <- processed_data()
@@ -214,6 +371,85 @@ data_module_server <- function(input, output, session, shared_values) {
                   list(targets = "_all", className = "dt-center")
                 )
               ))
+  })
+  
+  # Data quality alert display
+  output$data_quality_alert <- renderUI({
+    quality_report <- data_quality_report()
+    req(quality_report)
+    
+    issues_found <- length(quality_report$zero_variance) > 0 ||
+                   length(quality_report$perfect_correlations) > 0 ||
+                   length(quality_report$high_correlations) > 0
+    
+    dummy_info_available <- length(quality_report$dummy_variables) > 0
+    
+    if (!issues_found && !dummy_info_available) {
+      return(NULL)
+    }
+    
+    alert_content <- tags$div(
+      class = "alert alert-warning",
+      style = "margin-bottom: 10px;",
+      tags$h5(
+        tags$i(class = "fa fa-exclamation-triangle", style = "margin-right: 5px;"),
+        "Data Quality Issues Detected"
+      )
+    )
+    
+    issue_details <- list()
+    
+    if (length(quality_report$zero_variance) > 0) {
+      issue_details <- append(issue_details, list(
+        tags$p(
+          tags$strong("Zero Variance Variables: "),
+          paste(quality_report$zero_variance, collapse = ", "),
+          " - These variables have no variation and should be excluded from analysis."
+        )
+      ))
+    }
+    
+    if (length(quality_report$perfect_correlations) > 0) {
+      issue_details <- append(issue_details, list(
+        tags$p(
+          tags$strong("Perfect Correlations: "),
+          paste(quality_report$perfect_correlations, collapse = "; "),
+          " - These variables are perfectly correlated and may cause model identification problems."
+        )
+      ))
+    }
+    
+    if (length(quality_report$high_correlations) > 0) {
+      issue_details <- append(issue_details, list(
+        tags$p(
+          tags$strong("High Correlations: "),
+          paste(quality_report$high_correlations, collapse = "; "),
+          " - Monitor these variables for potential multicollinearity issues."
+        )
+      ))
+    }
+    
+    if (length(quality_report$dummy_variables) > 0) {
+      alert_style <- if (issues_found) "alert alert-warning" else "alert alert-info"
+      alert_content$attribs$class <- alert_style
+      
+      if (!issues_found) {
+        alert_content$children[[1]]$children[[2]] <- "Dummy Variables Detected"
+      }
+      
+      issue_details <- append(issue_details, list(
+        tags$p(
+          tags$strong("Dummy Variable Groups: "),
+          tags$br(),
+          paste(quality_report$dummy_variables, collapse = "; "),
+          tags$br(),
+          tags$em("Note: High correlations between dummy variables from the same categorical variable are expected and do not indicate data quality problems.")
+        )
+      ))
+    }
+    
+    alert_content$children <- append(alert_content$children, issue_details)
+    alert_content
   })
   
   # Return reactive values for other modules

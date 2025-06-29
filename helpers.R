@@ -83,8 +83,17 @@ loadDataOnce <- function(fileInput) {
 
 # File upload validation function
 validateUploadedFile <- function(fileInput) {
+  # Check if fileInput has required structure
+  if (is.null(fileInput) || !is.list(fileInput) || is.null(fileInput$name)) {
+    stop("Invalid file input structure")
+  }
+  
   # Check file extension
   ext <- tolower(tools::file_ext(fileInput$name))
+  if (length(ext) == 0 || ext == "") {
+    stop("File has no extension. Please upload files with .csv, .txt, .tsv, or .data extension")
+  }
+  
   allowed_extensions <- c("csv", "txt", "tsv", "data")
   
   if (!ext %in% allowed_extensions) {
@@ -176,6 +185,87 @@ validateDataQuality <- function(data, filename) {
   missing_proportion <- sum(is.na(data)) / (nrow(data) * ncol(data))
   if (missing_proportion > 0.5) {
     warning(paste("High proportion of missing data detected:", round(missing_proportion * 100, 1), "%. This may affect analysis quality"))
+  }
+  
+  # Advanced data quality checks for numeric variables
+  numeric_data <- data[sapply(data, is.numeric)]
+  if (ncol(numeric_data) >= 2) {
+    
+    # Check for zero variance variables
+    zero_variance_vars <- names(numeric_data)[sapply(numeric_data, function(x) {
+      clean_x <- x[!is.na(x)]
+      if (length(clean_x) < 2) return(TRUE)
+      var(clean_x, na.rm = TRUE) == 0 || sd(clean_x, na.rm = TRUE) < 1e-10
+    })]
+    
+    if (length(zero_variance_vars) > 0) {
+      warning(paste("Variables with zero or near-zero variance detected:", paste(zero_variance_vars, collapse = ", "), ". These variables cannot be used in correlation analysis"))
+    }
+    
+    # Check for perfect multicollinearity (correlation = 1.0)
+    if (ncol(numeric_data) >= 2 && nrow(numeric_data) >= 3) {
+      tryCatch({
+        correlation_matrix <- cor(numeric_data, use = "pairwise.complete.obs")
+        
+        # Find perfect correlations (excluding diagonal)
+        perfect_correlations <- which(abs(correlation_matrix) >= 0.999 & correlation_matrix != 1, arr.ind = TRUE)
+        
+        if (nrow(perfect_correlations) > 0) {
+          perfect_pairs <- character(0)
+          processed_pairs <- character(0)
+          
+          for (i in seq_len(nrow(perfect_correlations))) {
+            row_idx <- perfect_correlations[i, 1]
+            col_idx <- perfect_correlations[i, 2]
+            var1 <- rownames(correlation_matrix)[row_idx]
+            var2 <- colnames(correlation_matrix)[col_idx]
+            
+            # Avoid duplicate pairs (A-B and B-A)
+            pair_key <- paste(sort(c(var1, var2)), collapse = "-")
+            if (!pair_key %in% processed_pairs) {
+              correlation_value <- round(correlation_matrix[row_idx, col_idx], 4)
+              perfect_pairs <- c(perfect_pairs, paste0(var1, " & ", var2, " (r=", correlation_value, ")"))
+              processed_pairs <- c(processed_pairs, pair_key)
+            }
+          }
+          
+          if (length(perfect_pairs) > 0) {
+            warning(paste("Perfect or near-perfect correlations detected:", paste(perfect_pairs, collapse = "; "), ". This may cause model identification problems"))
+          }
+        }
+        
+        # Check for high correlations (>0.95) as warning
+        high_correlations <- which(abs(correlation_matrix) >= 0.95 & abs(correlation_matrix) < 0.999 & correlation_matrix != 1, arr.ind = TRUE)
+        
+        if (nrow(high_correlations) > 0) {
+          high_pairs <- character(0)
+          processed_pairs <- character(0)
+          
+          for (i in seq_len(nrow(high_correlations))) {
+            row_idx <- high_correlations[i, 1]
+            col_idx <- high_correlations[i, 2]
+            var1 <- rownames(correlation_matrix)[row_idx]
+            var2 <- colnames(correlation_matrix)[col_idx]
+            
+            pair_key <- paste(sort(c(var1, var2)), collapse = "-")
+            if (!pair_key %in% processed_pairs) {
+              correlation_value <- round(correlation_matrix[row_idx, col_idx], 3)
+              high_pairs <- c(high_pairs, paste0(var1, " & ", var2, " (r=", correlation_value, ")"))
+              processed_pairs <- c(processed_pairs, pair_key)
+            }
+          }
+          
+          if (length(high_pairs) > 0 && length(high_pairs) <= 5) {
+            warning(paste("High correlations detected:", paste(high_pairs, collapse = "; "), ". Monitor for potential multicollinearity issues"))
+          } else if (length(high_pairs) > 5) {
+            warning(paste("Multiple high correlations detected (", length(high_pairs), " pairs). Consider reviewing variable selection for multicollinearity"))
+          }
+        }
+        
+      }, error = function(e) {
+        # Silent error handling for correlation calculation
+      })
+    }
   }
   
   # Check for duplicate column names

@@ -1,7 +1,7 @@
 # Common Error Handling Utilities
 # Provides centralized error handling for the Structura application
 
-safe_execute <- function(expr, error_msg = "Operation failed", notify = TRUE, fallback = NULL, log_error = FALSE) {
+safe_execute <- function(expr, error_msg = "Operation failed", notify = TRUE, fallback = NULL, log_error = TRUE) {
   tryCatch({
     expr
   }, error = function(e) {
@@ -13,7 +13,9 @@ safe_execute <- function(expr, error_msg = "Operation failed", notify = TRUE, fa
     }
     
     # Log error if requested
-    if (log_error) {
+    if (log_error && exists("write_log", envir = .GlobalEnv)) {
+      write_log("ERROR", error_msg, e$message)
+    } else if (log_error) {
       cat(sprintf("[ERROR %s] %s\n", Sys.time(), full_message), file = stderr())
     }
     
@@ -51,7 +53,9 @@ safe_execute <- function(expr, error_msg = "Operation failed", notify = TRUE, fa
       })
     }
     
-    if (log_error) {
+    if (log_error && exists("write_log", envir = .GlobalEnv)) {
+      write_log("WARNING", "Operation warning", w$message)
+    } else if (log_error) {
       cat(sprintf("[WARNING %s] %s\n", Sys.time(), w$message), file = stderr())
     }
     

@@ -27,6 +27,12 @@ ui <- fluidPage(
              h4("Filtered Data"),
              uiOutput("log_transform_ui"),
              uiOutput("display_column_ui"),
+             
+             # Data Quality Alert Box
+             div(id = "data_quality_alert_box",
+                 style = "margin-bottom: 10px;",
+                 uiOutput("data_quality_alert")),
+             
              DTOutput("filtered_table"),
              tags$hr(),
              h4("Correlation Heatmap"),

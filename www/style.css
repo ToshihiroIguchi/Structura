@@ -8,5 +8,13 @@
 .shiny-modal .modal-body    { padding:20px !important; }
 .shiny-modal .modal-footer  { padding:10px !important; }
 .alert-box           { background:#fff3cd; border:1px solid #ffeeba; border-radius:6px; padding:10px; margin-bottom:10px; }
+.alert-warning       { background:#fff3cd; border:1px solid #ffeeba; border-radius:6px; padding:15px; margin-bottom:15px; }
+.alert-warning h5    { margin-top:0; color:#856404; }
+.alert-warning p     { margin-bottom:8px; color:#856404; }
+.alert-warning strong{ color:#856404; }
+.alert-info          { background:#d1ecf1; border:1px solid #bee5eb; border-radius:6px; padding:15px; margin-bottom:15px; }
+.alert-info h5       { margin-top:0; color:#0c5460; }
+.alert-info p        { margin-bottom:8px; color:#0c5460; }
+.alert-info strong   { color:#0c5460; }
 #lavaan_model        { white-space:pre; }
 #approx_eq           { white-space:pre-wrap; }

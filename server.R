@@ -13,6 +13,13 @@ source("server/plot_module.R", local = TRUE)
 
 server <- function(input, output, session) {
   
+  write_log("INFO", "Server function initialized")
+  
+  # Session cleanup on disconnect
+  session$onSessionEnded(function() {
+    write_log("INFO", "User session ended")
+  })
+  
   # Shared reactive values container (replaces global variables)
   shared_values <- reactiveValues(
     fit_model = NULL,

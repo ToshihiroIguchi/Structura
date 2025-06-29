@@ -294,7 +294,10 @@ model_module_server <- function(input, output, session, shared_values, data_modu
   fit_model_safe <- eventReactive(input$run_model, {
     ln <- isolate(lavaan_model_str())
     
+    write_log("INFO", "SEM model fitting initiated")
+    
     if (length(ln) == 0) {
+      write_log("WARNING", "Model fitting attempted with no equations")
       return(list(
         ok = FALSE,
         msg_friendly = "Define a model to proceed.",
@@ -306,6 +309,8 @@ model_module_server <- function(input, output, session, shared_values, data_modu
       processed_df <- data_module$processed_data()
       req(processed_df)
       
+      write_log("INFO", "Model fitting starting", paste("Equations:", length(ln), "Data rows:", nrow(processed_df)))
+      
       fm <- sem(
         paste(ln, collapse = "\n"),
         data = processed_df,
@@ -316,6 +321,12 @@ model_module_server <- function(input, output, session, shared_values, data_modu
       )
       
       converged <- lavInspect(fm, "converged")
+      
+      if (converged) {
+        write_log("INFO", "SEM model fitted successfully")
+      } else {
+        write_log("WARNING", "SEM model did not converge")
+      }
       
       fit_result <- list(
         ok = converged,
@@ -332,6 +343,7 @@ model_module_server <- function(input, output, session, shared_values, data_modu
       fit_result
       
     }, error = function(e) {
+      write_log("ERROR", "SEM model fitting failed", e$message)
       error_msg <- if (grepl("covariance matrix", e$message, ignore.case = TRUE)) {
         "Model estimation failed: Check for perfect correlations or insufficient data."
       } else if (grepl("identification", e$message, ignore.case = TRUE)) {
