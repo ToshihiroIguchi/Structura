@@ -280,3 +280,177 @@ validateDataQuality <- function(data, filename) {
     warning(paste("Some column names may cause issues in analysis:", paste(head(problematic_names, 3), collapse = ", "), ". Consider renaming columns to start with letters and use only letters, numbers, dots, and underscores"))
   }
 }
+
+# ---- Identification Problem Detection -------------------------
+# Generate user-friendly identification problem messages
+generate_identification_message <- function(model_syntax, data, original_error) {
+  
+  # Extract factors from model syntax
+  factors <- extract_factors_from_syntax(model_syntax)
+  
+  # Check for common identification issues
+  issues <- list()
+  
+  # Issue 1: Scale setting check
+  for (factor in factors) {
+    if (!has_scale_setting(factor, model_syntax)) {
+      first_indicator <- get_first_indicator(factor, model_syntax)
+      issues <- append(issues, sprintf(
+        "Factor '%s' needs scale setting. Add: '%s =~ 1*%s + other_variables'", 
+        factor, factor, first_indicator
+      ))
+    }
+  }
+  
+  # Issue 2: Insufficient indicators check  
+  for (factor in factors) {
+    indicator_count <- count_factor_indicators(factor, model_syntax)
+    if (indicator_count < 3) {
+      issues <- append(issues, sprintf(
+        "Factor '%s' has only %d indicators (minimum 3 recommended for identification)", 
+        factor, indicator_count
+      ))
+    }
+  }
+  
+  # Issue 3: Degrees of freedom check
+  if (!is.null(data)) {
+    df_check <- estimate_degrees_of_freedom(model_syntax, data)
+    if (df_check$df < 0) {
+      issues <- append(issues, sprintf(
+        "Model is over-parameterized: %d free parameters vs %d available moments (df = %d)",
+        df_check$n_params, df_check$n_moments, df_check$df
+      ))
+    }
+  }
+  
+  # Generate user-friendly message
+  if (length(issues) > 0) {
+    base_msg <- "IDENTIFICATION ISSUE DETECTED:\n\n"
+    detailed_issues <- paste("• ", issues, collapse = "\n")
+    solution_msg <- "\n\nMost common solution: Fix the first loading of each factor to 1.0"
+    
+    return(paste0(base_msg, detailed_issues, solution_msg))
+  } else {
+    return("Model identification problem detected. Check factor loadings and model complexity.")
+  }
+}
+
+# Extract factor names from lavaan syntax
+extract_factors_from_syntax <- function(model_syntax) {
+  if (length(model_syntax) == 0) return(character(0))
+  
+  # Combine all syntax lines
+  full_syntax <- paste(model_syntax, collapse = "\n")
+  
+  # Find measurement model lines (contains =~)
+  measurement_lines <- unlist(strsplit(full_syntax, "\n"))
+  measurement_lines <- measurement_lines[grepl("=~", measurement_lines)]
+  
+  # Extract factor names (left side of =~)
+  factors <- character(0)
+  for (line in measurement_lines) {
+    if (grepl("=~", line)) {
+      factor_name <- trimws(sub("=~.*", "", line))
+      factors <- c(factors, factor_name)
+    }
+  }
+  
+  return(unique(factors))
+}
+
+# Check if factor has scale setting (1* constraint)
+has_scale_setting <- function(factor, model_syntax) {
+  if (length(model_syntax) == 0) return(FALSE)
+  
+  full_syntax <- paste(model_syntax, collapse = "\n")
+  
+  # Look for pattern: factor =~ 1*variable or factor =~ variable*1
+  pattern <- sprintf("%s\\s*=~.*1\\*\\w+|%s\\s*=~.*\\w+\\*1", factor, factor)
+  
+  return(grepl(pattern, full_syntax))
+}
+
+# Get first indicator of a factor
+get_first_indicator <- function(factor, model_syntax) {
+  if (length(model_syntax) == 0) return("var1")
+  
+  full_syntax <- paste(model_syntax, collapse = "\n")
+  
+  # Find the measurement line for this factor
+  lines <- unlist(strsplit(full_syntax, "\n"))
+  factor_line <- lines[grepl(sprintf("%s\\s*=~", factor), lines)][1]
+  
+  if (is.na(factor_line)) return("var1")
+  
+  # Extract indicators (right side of =~)
+  indicators_part <- sub(".*=~\\s*", "", factor_line)
+  indicators_part <- gsub("1\\*", "", indicators_part)  # Remove existing constraints
+  
+  # Split by + and get first indicator
+  indicators <- unlist(strsplit(indicators_part, "\\+"))
+  first_indicator <- trimws(indicators[1])
+  
+  # Clean up variable name
+  first_indicator <- gsub("[^a-zA-Z0-9_\\.]", "", first_indicator)
+  
+  return(if (nchar(first_indicator) > 0) first_indicator else "var1")
+}
+
+# Count indicators for a factor
+count_factor_indicators <- function(factor, model_syntax) {
+  if (length(model_syntax) == 0) return(0)
+  
+  full_syntax <- paste(model_syntax, collapse = "\n")
+  
+  # Find the measurement line for this factor
+  lines <- unlist(strsplit(full_syntax, "\n"))
+  factor_line <- lines[grepl(sprintf("%s\\s*=~", factor), lines)][1]
+  
+  if (is.na(factor_line)) return(0)
+  
+  # Extract and count indicators
+  indicators_part <- sub(".*=~\\s*", "", factor_line)
+  indicators <- unlist(strsplit(indicators_part, "\\+"))
+  indicators <- trimws(indicators)
+  indicators <- indicators[nchar(indicators) > 0]
+  
+  return(length(indicators))
+}
+
+# Estimate degrees of freedom
+estimate_degrees_of_freedom <- function(model_syntax, data) {
+  if (is.null(data) || length(model_syntax) == 0) {
+    return(list(df = NA, n_params = NA, n_moments = NA))
+  }
+  
+  n_vars <- ncol(data)
+  n_moments <- n_vars * (n_vars + 1) / 2
+  
+  # Rough parameter counting
+  factors <- extract_factors_from_syntax(model_syntax)
+  n_factors <- length(factors)
+  
+  # Estimate parameters:
+  # - Factor loadings (minus constraints)
+  # - Error variances (one per observed variable)  
+  # - Factor variances
+  # - Factor covariances
+  
+  total_loadings <- sum(sapply(factors, function(f) count_factor_indicators(f, model_syntax)))
+  fixed_loadings <- sum(sapply(factors, function(f) has_scale_setting(f, model_syntax)))
+  
+  free_loadings <- total_loadings - fixed_loadings
+  error_variances <- n_vars
+  factor_variances <- n_factors
+  factor_covariances <- n_factors * (n_factors - 1) / 2
+  
+  n_params <- free_loadings + error_variances + factor_variances + factor_covariances
+  df <- n_moments - n_params
+  
+  return(list(
+    df = df,
+    n_params = n_params,
+    n_moments = n_moments
+  ))
+}

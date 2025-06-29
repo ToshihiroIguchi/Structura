@@ -346,8 +346,8 @@ model_module_server <- function(input, output, session, shared_values, data_modu
       write_log("ERROR", "SEM model fitting failed", e$message)
       error_msg <- if (grepl("covariance matrix", e$message, ignore.case = TRUE)) {
         "Model estimation failed: Check for perfect correlations or insufficient data."
-      } else if (grepl("identification", e$message, ignore.case = TRUE)) {
-        "Model identification problem: Model may be under-identified."
+      } else if (grepl("identification|not identified|rank deficient", e$message, ignore.case = TRUE)) {
+        generate_identification_message(lavaan_model_str(), data_module$processed_data(), e$message)
       } else {
         paste("Estimation failed:", e$message)
       }
