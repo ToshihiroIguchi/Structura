@@ -109,15 +109,102 @@ model_module_server <- function(input, output, session, shared_values, data_modu
       rh <- hot_col(rh, "Dependent", readOnly = TRUE)
       rh <- hot_col(rh, "Operator", readOnly = TRUE)
       
-      for (col in items) {
-        rh <- hot_col(rh, col, type = "checkbox")
+      # Calculate correlation matrix first for coloring
+      cor_matrix <- NULL
+      r_squared <- NULL
+      
+      tryCatch({
+        available_items <- intersect(items, names(df))
+        if (length(available_items) >= 2) {
+          numeric_subset <- df[available_items]
+          numeric_mask <- sapply(numeric_subset, function(x) is.numeric(x) && !all(is.na(x)))
+          numeric_vars <- names(numeric_subset)[numeric_mask]
+          
+          if (length(numeric_vars) >= 2) {
+            cor_data <- df[numeric_vars]
+            if (nrow(cor_data) >= 3) {
+              cor_matrix <- cor(cor_data, use = "pairwise.complete.obs")
+              if (!any(is.na(cor_matrix)) && is.matrix(cor_matrix)) {
+                r_squared <- cor_matrix^2
+              }
+            }
+          }
+        }
+      }, error = function(e) {
+        # Silent error handling
+      })
+      
+      # Apply column renderers with color coding
+      for (j in seq_along(items)) {
+        col_name <- items[j]
+        col_index <- match(col_name, names(mat))
+        
+        if (!is.na(col_index)) {
+          # Create renderer with color logic
+          renderer_code <- "function(instance, td, row, col, prop, value, cellProperties) {
+            Handsontable.renderers.CheckboxRenderer.apply(this, arguments);
+            
+            var colors = {"
+          
+          # Add color mapping for each row
+          for (i in seq_along(items)) {
+            row_name <- items[i]
+            
+            if (i == j) {
+              # Diagonal - gray
+              color <- "#f0f0f0"
+            } else if (!is.null(r_squared) && 
+                      row_name %in% rownames(r_squared) && 
+                      col_name %in% colnames(r_squared)) {
+              # Color based on R-squared
+              r2_value <- r_squared[row_name, col_name]
+              
+              if (!is.na(r2_value) && is.finite(r2_value)) {
+                # Create seamless white to red gradient based on R-squared value
+                # R^2 = 0: white (#ffffff)
+                # R^2 = 1: red (#ff0000)
+                # Formula: RGB(255, 255*(1-R²), 255*(1-R²))
+                
+                # Ensure R² is between 0 and 1
+                r2_clamped <- max(0, min(1, r2_value))
+                
+                # Calculate RGB components
+                red_component <- 255
+                green_component <- round(255 * (1 - r2_clamped))
+                blue_component <- round(255 * (1 - r2_clamped))
+                
+                color <- sprintf("#%02x%02x%02x", red_component, green_component, blue_component)
+              } else {
+                color <- "#ffffff"
+              }
+            } else {
+              # Default white
+              color <- "#ffffff"
+            }
+            
+            renderer_code <- paste0(renderer_code, sprintf('"%d": "%s"', i - 1, color))
+            if (i < length(items)) {
+              renderer_code <- paste0(renderer_code, ", ")
+            }
+          }
+          
+          renderer_code <- paste0(renderer_code, "};
+            
+            if (colors[row] !== undefined) {
+              td.style.backgroundColor = colors[row];
+            }
+            
+            // Make diagonal read-only
+            if (colors[row] === '#f0f0f0') {
+              cellProperties.readOnly = true;
+            }
+          }")
+          
+          rh <- hot_col(rh, col = col_index, type = "checkbox", 
+                        renderer = renderer_code)
+        }
       }
       
-      for (i in seq_along(items)) {
-        rh <- hot_cell(rh, row = i,
-                       col = match(items[i], colnames(mat)),
-                       readOnly = TRUE)
-      }
       rh
     }, error = function(e) {
       showNotification(
