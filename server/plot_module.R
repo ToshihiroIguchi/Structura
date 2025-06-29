@@ -54,9 +54,13 @@ plot_module_server <- function(input, output, session, shared_values) {
       col_palette <- colorRampPalette(c("blue", "white", "red"))(100)
       
       # Create the heatmap using base R image()
-      # image() displays matrix with (1,1) at bottom-left, so we need to flip Y-axis
+      # image() displays matrix with (1,1) at bottom-left, so we flip Y-axis data
       par(mar = c(5, 5, 2, 5))
-      image(1:n, 1:n, cm_display[n:1, ], 
+      
+      # Prepare matrix for image: flip rows so image displays correctly
+      image_matrix <- cm_display[n:1, ]
+      
+      image(1:n, 1:n, image_matrix, 
             col = col_palette, 
             breaks = seq(-1, 1, length.out = 101),
             xlab = "", ylab = "", 
@@ -64,19 +68,20 @@ plot_module_server <- function(input, output, session, shared_values) {
             main = "Correlation Matrix")
       
       # Add variable names
+      # X-axis: column names (unchanged)
+      # Y-axis: row names (reversed because we flipped the matrix)
       axis(1, at = 1:n, labels = colnames(cm), las = 2, cex.axis = 0.8)
       axis(2, at = 1:n, labels = rev(rownames(cm)), las = 2, cex.axis = 0.8)
       
       # Add correlation values as text
-      # image() displays matrix with (1,1) at bottom-left
-      # cm_display[n:1, ] flips Y-axis, so original (i,j) -> display (j, n-i+1)
+      # Since we flipped rows for image(), we need to account for this in text positioning
       for (i in 1:n) {
         for (j in 1:n) {
           if (!is.na(cm_display[i, j])) {
-            # Map to display coordinates correctly
-            display_x <- j
-            display_y <- n - i + 1
-            text(display_x, display_y, sprintf("%.3f", cm_display[i, j]), 
+            # Original matrix position (i,j) maps to image position (j, n-i+1)
+            plot_x <- j
+            plot_y <- n - i + 1
+            text(plot_x, plot_y, sprintf("%.3f", cm_display[i, j]), 
                  cex = 0.7, col = ifelse(abs(cm_display[i, j]) > 0.5, "white", "black"))
           }
         }
