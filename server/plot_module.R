@@ -30,73 +30,68 @@ plot_module_server <- function(input, output, session, shared_values) {
     }
   })
   
-  # Render correlation heatmap
+  # Render correlation heatmap with ggplot2
   output$corr_heatmap <- renderPlot({
     cache_data <- correlation_cache()
     
     # Show message when no data available
     if (is.null(cache_data)) {
-      plot(1, type = "n", axes = FALSE, xlab = "", ylab = "")
-      text(1, 1, "Select at least 2 numeric variables to display correlation heatmap", 
-           cex = 1.2, col = "gray50")
-      return()
-    }
-    
-    tryCatch({
-      cm <- cache_data$matrix
-      n <- nrow(cm)
-      
-      # Remove upper triangle and diagonal (keep only lower triangle)
-      cm_display <- cm
-      cm_display[upper.tri(cm_display, diag = TRUE)] <- NA
-      
-      # Create color palette
-      col_palette <- colorRampPalette(c("blue", "white", "red"))(100)
-      
-      # Create the heatmap using base R image()
-      # image() displays matrix with (1,1) at bottom-left, so we flip Y-axis data
-      par(mar = c(5, 5, 2, 5))
-      
-      # Prepare matrix for image: flip rows so image displays correctly
-      image_matrix <- cm_display[n:1, ]
-      
-      image(1:n, 1:n, image_matrix, 
-            col = col_palette, 
-            breaks = seq(-1, 1, length.out = 101),
-            xlab = "", ylab = "", 
-            axes = FALSE,
-            main = "Correlation Matrix")
-      
-      # Add variable names
-      # X-axis: column names (unchanged)
-      # Y-axis: row names (reversed because we flipped the matrix)
-      axis(1, at = 1:n, labels = colnames(cm), las = 2, cex.axis = 0.8)
-      axis(2, at = 1:n, labels = rev(rownames(cm)), las = 2, cex.axis = 0.8)
-      
-      # Add correlation values as text
-      # Since we flipped rows for image(), we need to account for this in text positioning
-      for (i in 1:n) {
-        for (j in 1:n) {
-          if (!is.na(cm_display[i, j])) {
-            # Original matrix position (i,j) maps to image position (j, n-i+1)
-            plot_x <- j
-            plot_y <- n - i + 1
-            text(plot_x, plot_y, sprintf("%.3f", cm_display[i, j]), 
-                 cex = 0.7, col = ifelse(abs(cm_display[i, j]) > 0.5, "white", "black"))
-          }
-        }
-      }
-      
-      # Add color legend
-      legend("right", legend = sprintf("%.1f", seq(-1, 1, by = 0.5)), 
-             fill = col_palette[c(1, 25, 50, 75, 100)], 
-             title = "Correlation", cex = 0.8)
+      ggplot() + 
+        annotate("text", x = 0.5, y = 0.5, 
+                 label = "Select at least 2 numeric variables to display correlation heatmap",
+                 size = 5, color = "gray50") +
+        theme_void() +
+        xlim(0, 1) + ylim(0, 1)
+    } else {
+      tryCatch({
+        cm <- cache_data$matrix
+        n <- nrow(cm)
         
-    }, error = function(e) {
-      plot(1, type = "n", axes = FALSE, xlab = "", ylab = "")
-      text(1, 1, "Unable to generate correlation plot.\nPlease ensure you have selected numeric variables with valid data.", 
-           cex = 1.0, col = "red")
-    })
+        # Remove upper triangle and diagonal (keep only lower triangle)
+        cm_display <- cm
+        cm_display[upper.tri(cm_display, diag = TRUE)] <- NA
+        
+        # Convert matrix to long format for ggplot2 using reshape2
+        melted_data <- melt(cm_display, na.rm = TRUE)
+        colnames(melted_data) <- c("Var1", "Var2", "value")
+        
+        # Create ggplot heatmap
+        p <- ggplot(melted_data, aes(x = Var2, y = Var1, fill = value)) +
+          geom_tile(color = "white", size = 0.5) +
+          scale_fill_gradient2(
+            low = "blue", 
+            mid = "white", 
+            high = "red",
+            midpoint = 0,
+            limits = c(-1, 1),
+            name = "Correlation"
+          ) +
+          geom_text(aes(label = sprintf("%.3f", value)), 
+                   color = ifelse(abs(melted_data$value) > 0.5, "white", "black"),
+                   size = 3) +
+          labs(title = "Correlation Matrix",
+               x = "", y = "") +
+          scale_y_discrete(limits = rev(levels(melted_data$Var1))) +
+          theme_minimal() +
+          theme(
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+            axis.text.y = element_text(size = 10),
+            plot.title = element_text(hjust = 0.5, size = 14),
+            legend.position = "right"
+          ) +
+          coord_fixed()
+        
+        print(p)
+        
+      }, error = function(e) {
+        ggplot() + 
+          annotate("text", x = 0.5, y = 0.5, 
+                   label = "Unable to generate correlation plot.\nPlease ensure you have selected numeric variables with valid data.",
+                   size = 4, color = "red") +
+          theme_void() +
+          xlim(0, 1) + ylim(0, 1)
+      })
+    }
   })
   
   # SEM path diagram UI
