@@ -1,7 +1,7 @@
 Package: Structura
 Title: Structural Equation Modeling Shiny Application
 Version: 1.0.0
-Authors@R: person("Toshihiro", "Iguchi", email = "your.email@example.com", role = c("aut", "cre"))
+Authors@R: person("Toshihiro", "Iguchi", email = "toshihiro.iguchi.github@gmail.com", role = c("aut", "cre"))
 Description: Interactive Shiny application for Structural Equation Modeling (SEM) using lavaan package.
 License: MIT + file LICENSE
 Encoding: UTF-8
@@ -13,11 +13,14 @@ Imports:
     shinyjs,
     DT,
     rhandsontable,
+    readflex,
     lavaan,
     DiagrammeR,
     ggplot2,
     reshape2,
     markdown
+Remotes:
+    ToshihiroIguchi/readflex
 Suggests: 
     testthat (>= 3.0.0),
     shinytest2,
