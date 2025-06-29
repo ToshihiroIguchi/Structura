@@ -36,7 +36,7 @@ ui <- fluidPage(
              DTOutput("filtered_table"),
              tags$hr(),
              h4("Correlation Heatmap"),
-             plotOutput("corr_heatmap", height = "300px")),
+             plotOutput("corr_heatmap", height = "500px")),
 
     # ---------------- Model tab ----------------------------------
     tabPanel("Model",

@@ -77,9 +77,9 @@ plot_module_server <- function(input, output, session, shared_values) {
             axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
             axis.text.y = element_text(size = 10),
             plot.title = element_text(hjust = 0.5, size = 14),
-            legend.position = "right"
-          ) +
-          coord_fixed()
+            legend.position = "right",
+            aspect.ratio = 0.8
+          )
         
         print(p)
         
