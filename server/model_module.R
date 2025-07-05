@@ -80,6 +80,147 @@ model_module_server <- function(input, output, session, shared_values, data_modu
     input_table_data(rbind(df, new_row))
   })
   
+  # Covariance matrix data
+  covariance_table_data <- reactiveVal(NULL)
+  
+  # Initialize covariance matrix when variables change
+  observeEvent(c(input$display_columns, input_table_data(), input$covariance_mode), ignoreNULL = FALSE, {
+    if (!is.null(input$covariance_mode) && input$covariance_mode == "custom") {
+      df <- data_module$processed_data()
+      meas <- input_table_data()
+      
+      if (!is.null(df) && !is.null(meas)) {
+        # Get all variables (observed + latent)
+        deps <- as.character(input$display_columns %||% names(df))
+        vars <- names(meas)[4:ncol(meas)]
+        row_has_indicator <- apply(meas[vars], 1, function(x) any(as.logical(x)))
+        latent_vars <- setdiff(na.omit(unique(meas$Indicator[row_has_indicator])), "")
+        all_vars <- unique(c(deps, latent_vars))
+        
+        if (length(all_vars) > 0) {
+          # Create true symmetric matrix structure (square matrix)
+          n_vars <- length(all_vars)
+          
+          # Initialize matrix with variable names as both rows and columns
+          cov_mat <- matrix("auto", nrow = n_vars, ncol = n_vars)
+          rownames(cov_mat) <- all_vars
+          colnames(cov_mat) <- all_vars
+          
+          # Set diagonal to auto estimation (default for variance)
+          diag(cov_mat) <- "auto"
+          
+          # Set lower triangle to empty (avoid confusion)
+          for (i in seq_len(n_vars)) {
+            for (j in seq_len(n_vars)) {
+              if (i > j) {
+                cov_mat[i, j] <- ""
+              }
+            }
+          }
+          
+          # Convert to data frame with row names as first column
+          cov_df <- data.frame(
+            Variable = all_vars,
+            stringsAsFactors = FALSE
+          )
+          
+          # Add each variable as a column
+          for (var in all_vars) {
+            cov_df[[var]] <- cov_mat[, var]
+          }
+          
+          covariance_table_data(cov_df)
+        }
+      }
+    }
+  })
+  
+  # Render covariance matrix
+  output$covariance_matrix <- renderRHandsontable({
+    if (is.null(input$covariance_mode) || input$covariance_mode != "custom") return(NULL)
+    
+    df <- covariance_table_data()
+    req(df)
+    
+    tryCatch({
+      vars <- names(df)[2:ncol(df)]  # Skip "Variable" column, no "Operator" column
+      
+      rh <- rhandsontable(df, rowHeaders = FALSE) %>%
+        hot_table(highlightReadOnly = TRUE)
+      rh <- hot_col(rh, "Variable", readOnly = TRUE)
+      
+      # Configure each variable column as dropdown with symmetric behavior
+      for (i in seq_along(vars)) {
+        col_name <- vars[i]
+        
+        # Create custom renderer for symmetric matrix visualization
+        renderer_code <- sprintf("
+          function(instance, td, row, col, prop, value, cellProperties) {
+            
+            // Color coding for matrix structure
+            if (row === col - 1) {
+              // Diagonal - variance (light blue)
+              Handsontable.renderers.DropdownRenderer.apply(this, arguments);
+              td.style.backgroundColor = '#e6f3ff';
+            } else if (row < col - 1) {
+              // Upper triangle - covariance (light green)
+              Handsontable.renderers.DropdownRenderer.apply(this, arguments);
+              td.style.backgroundColor = '#f0fff0';
+            } else {
+              // Lower triangle - empty and read-only (very light gray)
+              Handsontable.renderers.TextRenderer.apply(this, arguments);
+              td.style.backgroundColor = '#fafafa';
+              td.style.border = '1px solid #e0e0e0';
+              cellProperties.readOnly = true;
+              td.innerHTML = '';  // Force empty content
+            }
+          }")
+        
+        rh <- hot_col(rh, col_name, type = "dropdown", 
+                      source = c("auto", "0", "fix"),
+                      strict = TRUE,
+                      renderer = renderer_code)
+      }
+      
+      rh
+    }, error = function(e) {
+      showNotification(
+        paste("Covariance matrix error:", e$message),
+        type = "error",
+        duration = 3
+      )
+      NULL
+    })
+  })
+  
+  # Update covariance matrix
+  observeEvent(input$covariance_matrix, {
+    if (is.null(input$covariance_mode) || input$covariance_mode != "custom") return()
+    
+    tbl <- hot_to_r(input$covariance_matrix)
+    req(tbl)
+    
+    tryCatch({
+      # Keep lower triangle empty for clarity
+      vars <- names(tbl)[2:ncol(tbl)]  # Skip "Variable" column
+      for (i in seq_along(vars)) {
+        for (j in seq_along(vars)) {
+          if (i > j) {
+            # Keep lower triangle empty (don't mirror)
+            tbl[i, vars[j]] <- ""
+          }
+        }
+      }
+      covariance_table_data(tbl)
+    }, error = function(e) {
+      showNotification(
+        paste("Covariance matrix update error:", e$message),
+        type = "warning",
+        duration = 3
+      )
+    })
+  })
+  
   # Structural model matrix
   output$checkbox_matrix <- renderRHandsontable({
     df <- data_module$processed_data()
@@ -244,6 +385,60 @@ model_module_server <- function(input, output, session, shared_values, data_modu
         paste0(dp, " ~ ", paste(ps, collapse = " + "))
       })
       
+      # Covariance model lines
+      clines <- NULL
+      if (!is.null(input$covariance_mode) && input$covariance_mode == "custom" && !is.null(input$covariance_matrix)) {
+        cov_data <- hot_to_r(input$covariance_matrix)
+        if (!is.null(cov_data)) {
+          # Validate covariance matrix structure
+          if (!validate_covariance_matrix(cov_data)) {
+            showNotification(
+              "Invalid covariance matrix structure detected",
+              type = "warning",
+              duration = 3
+            )
+            return(character(0))
+          }
+          clines <- lapply(seq_len(nrow(cov_data)), function(i) {
+            var1 <- cov_data$Variable[i]
+            vars <- names(cov_data)[2:ncol(cov_data)]  # Skip "Variable" column
+            
+            # Process each variable pair
+            covariance_lines <- character(0)
+            for (j in seq_along(vars)) {
+              var2 <- vars[j]
+              setting <- cov_data[i, var2]
+              
+              # Skip empty cells (lower triangle)
+              if (is.na(setting) || setting == "" || is.null(setting)) {
+                next
+              }
+              
+              if (i == j) {
+                # Diagonal - variance
+                if (setting == "fix") {
+                  covariance_lines <- c(covariance_lines, paste0(var1, " ~~ 1.0*", var1))
+                } else if (setting == "0") {
+                  covariance_lines <- c(covariance_lines, paste0(var1, " ~~ 0*", var1))
+                }
+                # "auto" is handled automatically by lavaan (no explicit specification needed)
+              } else if (i < j) {
+                # Upper triangle - covariance
+                if (setting == "fix") {
+                  covariance_lines <- c(covariance_lines, paste0(var1, " ~~ 1.0*", var2))
+                } else if (setting == "0") {
+                  covariance_lines <- c(covariance_lines, paste0(var1, " ~~ 0*", var2))
+                }
+                # "auto" means free estimation (no explicit specification needed)
+              }
+            }
+            
+            return(covariance_lines)
+          })
+          clines <- unlist(clines)
+        }
+      }
+      
       # Additional equations with validation
       extra <- if (!is.null(input$extra_eq)) {
         # Validate manual equations for security and syntax
@@ -265,7 +460,7 @@ model_module_server <- function(input, output, session, shared_values, data_modu
         NULL
       }
       
-      model_syntax <- unlist(c(mlines, slines, extra))
+      model_syntax <- unlist(c(mlines, slines, clines, extra))
       
       # Update shared values
       shared_values$model_syntax <- model_syntax

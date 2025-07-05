@@ -454,3 +454,48 @@ estimate_degrees_of_freedom <- function(model_syntax, data) {
     n_moments = n_moments
   ))
 }
+
+# ---- Covariance Matrix Validation -----------------------------
+# Validate covariance matrix structure and settings
+validate_covariance_matrix <- function(cov_data) {
+  if (is.null(cov_data) || !is.data.frame(cov_data)) {
+    return(FALSE)
+  }
+  
+  # Check required columns
+  if (!"Variable" %in% names(cov_data)) {
+    return(FALSE)
+  }
+  
+  # Check if matrix is square
+  var_cols <- names(cov_data)[2:ncol(cov_data)]  # Skip "Variable" column only
+  if (length(var_cols) != nrow(cov_data)) {
+    return(FALSE)
+  }
+  
+  # Check if variable names match column names
+  if (!all(cov_data$Variable == var_cols)) {
+    return(FALSE)
+  }
+  
+  # Check valid settings
+  valid_settings <- c("auto", "fix", "0", "")  # Include empty string for lower triangle
+  for (i in seq_len(nrow(cov_data))) {
+    for (j in seq_along(var_cols)) {
+      setting <- cov_data[i, var_cols[j]]
+      if (!setting %in% valid_settings) {
+        return(FALSE)
+      }
+    }
+  }
+  
+  # Check diagonal consistency (should be variance-related)
+  for (i in seq_len(nrow(cov_data))) {
+    diagonal_setting <- cov_data[i, var_cols[i]]
+    if (!diagonal_setting %in% c("auto", "fix", "0")) {
+      return(FALSE)
+    }
+  }
+  
+  return(TRUE)
+}

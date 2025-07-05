@@ -69,6 +69,16 @@ ui <- fluidPage(
                       h4("Structural Model"),
                       rHandsontableOutput("checkbox_matrix"),
                       tags$hr(),
+                      h4("Variance & Covariance"),
+                      radioButtons("covariance_mode", "Covariance Settings:",
+                                   choices = c("Automatic (default)" = "auto",
+                                               "Custom settings" = "custom"),
+                                   selected = "auto", inline = TRUE),
+                      conditionalPanel(
+                        condition = "input.covariance_mode == 'custom'",
+                        rHandsontableOutput("covariance_matrix")
+                      ),
+                      tags$hr(),
                       h4("Manual Equations"),
                       textAreaInput("extra_eq",
                                     "Additional lavaan syntax (one formula per line):",
