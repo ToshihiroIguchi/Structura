@@ -87,15 +87,14 @@ data_module_server <- function(input, output, session, shared_values) {
   # Data preview table
   output$datatable <- renderDT({
     req(data())
-    formatted_data <- format_numeric_for_display(data())
     
-    datatable(formatted_data, 
+    datatable(data(), 
               filter = "top", 
-              editable = FALSE,
+              editable = TRUE,
               extensions = 'Buttons',
               options = list(
                 pageLength = 30, 
-                autoWidth = TRUE,
+                autoWidth = FALSE,
                 scrollX = TRUE,
                 dom = 'Bfrtip',
                 buttons = list(
@@ -108,7 +107,7 @@ data_module_server <- function(input, output, session, shared_values) {
                 )
               ),
               rownames = FALSE)
-  }, server = FALSE)
+  }, server = TRUE)
   
   # Log transform UI
   output$log_transform_ui <- renderUI({
