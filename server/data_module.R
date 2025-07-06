@@ -92,10 +92,17 @@ data_module_server <- function(input, output, session, shared_values) {
     datatable(formatted_data, 
               filter = "top", 
               editable = FALSE,
+              extensions = 'Buttons',
               options = list(
                 pageLength = 30, 
                 autoWidth = TRUE,
                 scrollX = TRUE,
+                dom = 'Bfrtip',
+                buttons = list(
+                  list(extend = 'copy', text = 'Copy to Clipboard'),
+                  list(extend = 'csv', text = 'Download CSV'),
+                  list(extend = 'excel', text = 'Download Excel')
+                ),
                 columnDefs = list(
                   list(targets = "_all", className = "dt-center")
                 )
@@ -392,10 +399,17 @@ data_module_server <- function(input, output, session, shared_values) {
     formatted_df <- format_numeric_for_display(df)
     
     datatable(formatted_df, 
-              editable = FALSE, 
+              editable = FALSE,
+              extensions = 'Buttons',
               options = list(
                 pageLength = 10,
                 scrollX = TRUE,
+                dom = 'Bfrtip',
+                buttons = list(
+                  list(extend = 'copy', text = 'Copy to Clipboard'),
+                  list(extend = 'csv', text = 'Download CSV'),
+                  list(extend = 'excel', text = 'Download Excel')
+                ),
                 columnDefs = list(
                   list(targets = "_all", className = "dt-center")
                 )

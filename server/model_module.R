@@ -613,7 +613,15 @@ model_module_server <- function(input, output, session, shared_values, data_modu
       datatable(tbl, 
                 escape = FALSE, 
                 rownames = FALSE,
-                options = list(dom = 't'))
+                extensions = 'Buttons',
+                options = list(
+                  dom = 'Bt',
+                  buttons = list(
+                    list(extend = 'copy', text = 'Copy to Clipboard'),
+                    list(extend = 'csv', text = 'Download CSV'),
+                    list(extend = 'excel', text = 'Download Excel')
+                  )
+                ))
                 
     }, error = function(e) {
       showNotification(
@@ -667,7 +675,17 @@ model_module_server <- function(input, output, session, shared_values, data_modu
         round(x, 3)
       })
       
-      datatable(param_est, options = list(pageLength = 15))
+      datatable(param_est, 
+                extensions = 'Buttons',
+                options = list(
+                  pageLength = 15,
+                  dom = 'Bfrtip',
+                  buttons = list(
+                    list(extend = 'copy', text = 'Copy to Clipboard'),
+                    list(extend = 'csv', text = 'Download CSV'),
+                    list(extend = 'excel', text = 'Download Excel')
+                  )
+                ))
     }, error = function(e) {
       showNotification(
         paste("Parameter table error:", e$message),
