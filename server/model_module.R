@@ -102,18 +102,18 @@ model_module_server <- function(input, output, session, shared_values, data_modu
           n_vars <- length(all_vars)
           
           # Initialize matrix with variable names as both rows and columns
-          cov_mat <- matrix("auto", nrow = n_vars, ncol = n_vars)
+          cov_mat <- matrix(TRUE, nrow = n_vars, ncol = n_vars)
           rownames(cov_mat) <- all_vars
           colnames(cov_mat) <- all_vars
           
-          # Set diagonal to auto estimation (default for variance)
-          diag(cov_mat) <- "auto"
+          # Set diagonal to TRUE (default for variance estimation)
+          diag(cov_mat) <- TRUE
           
-          # Set lower triangle to empty (avoid confusion)
+          # Set lower triangle to FALSE (avoid confusion)
           for (i in seq_len(n_vars)) {
             for (j in seq_len(n_vars)) {
               if (i > j) {
-                cov_mat[i, j] <- ""
+                cov_mat[i, j] <- FALSE
               }
             }
           }
@@ -160,11 +160,11 @@ model_module_server <- function(input, output, session, shared_values, data_modu
             // Color coding for matrix structure
             if (row === col - 1) {
               // Diagonal - variance (light blue)
-              Handsontable.renderers.DropdownRenderer.apply(this, arguments);
+              Handsontable.renderers.CheckboxRenderer.apply(this, arguments);
               td.style.backgroundColor = '#e6f3ff';
             } else if (row < col - 1) {
               // Upper triangle - covariance (light green)
-              Handsontable.renderers.DropdownRenderer.apply(this, arguments);
+              Handsontable.renderers.CheckboxRenderer.apply(this, arguments);
               td.style.backgroundColor = '#f0fff0';
             } else {
               // Lower triangle - empty and read-only (very light gray)
@@ -176,9 +176,7 @@ model_module_server <- function(input, output, session, shared_values, data_modu
             }
           }")
         
-        rh <- hot_col(rh, col_name, type = "dropdown", 
-                      source = c("auto", "0", "fix"),
-                      strict = TRUE,
+        rh <- hot_col(rh, col_name, type = "checkbox",
                       renderer = renderer_code)
       }
       
@@ -201,13 +199,13 @@ model_module_server <- function(input, output, session, shared_values, data_modu
     req(tbl)
     
     tryCatch({
-      # Keep lower triangle empty for clarity
+      # Keep lower triangle FALSE for clarity
       vars <- names(tbl)[2:ncol(tbl)]  # Skip "Variable" column
       for (i in seq_along(vars)) {
         for (j in seq_along(vars)) {
           if (i > j) {
-            # Keep lower triangle empty (don't mirror)
-            tbl[i, vars[j]] <- ""
+            # Keep lower triangle FALSE (don't mirror)
+            tbl[i, vars[j]] <- FALSE
           }
         }
       }
@@ -409,27 +407,27 @@ model_module_server <- function(input, output, session, shared_values, data_modu
               var2 <- vars[j]
               setting <- cov_data[i, var2]
               
-              # Skip empty cells (lower triangle)
-              if (is.na(setting) || setting == "" || is.null(setting)) {
+              # Handle checkbox settings
+              if (is.na(setting)) {
                 next
               }
               
+              checkbox_value <- as.logical(setting)
+              
               if (i == j) {
                 # Diagonal - variance
-                if (setting == "fix") {
-                  covariance_lines <- c(covariance_lines, paste0(var1, " ~~ 1.0*", var1))
-                } else if (setting == "0") {
+                if (!checkbox_value) {
+                  # Unchecked means zero variance
                   covariance_lines <- c(covariance_lines, paste0(var1, " ~~ 0*", var1))
                 }
-                # "auto" is handled automatically by lavaan (no explicit specification needed)
+                # Checked (TRUE) is handled automatically by lavaan (free estimation)
               } else if (i < j) {
                 # Upper triangle - covariance
-                if (setting == "fix") {
-                  covariance_lines <- c(covariance_lines, paste0(var1, " ~~ 1.0*", var2))
-                } else if (setting == "0") {
+                if (!checkbox_value) {
+                  # Unchecked means zero covariance (independence)
                   covariance_lines <- c(covariance_lines, paste0(var1, " ~~ 0*", var2))
                 }
-                # "auto" means free estimation (no explicit specification needed)
+                # Checked (TRUE) means free estimation (no explicit specification needed)
               }
             }
             
@@ -662,6 +660,13 @@ model_module_server <- function(input, output, session, shared_values, data_modu
     
     tryCatch({
       param_est <- parameterEstimates(model$fit)
+      
+      # Format numeric columns to 3 decimal places
+      numeric_cols <- sapply(param_est, is.numeric)
+      param_est[numeric_cols] <- lapply(param_est[numeric_cols], function(x) {
+        round(x, 3)
+      })
+      
       datatable(param_est, options = list(pageLength = 15))
     }, error = function(e) {
       showNotification(

@@ -478,21 +478,20 @@ validate_covariance_matrix <- function(cov_data) {
     return(FALSE)
   }
   
-  # Check valid settings
-  valid_settings <- c("auto", "fix", "0", "")  # Include empty string for lower triangle
+  # Check valid settings (logical values for checkboxes)
   for (i in seq_len(nrow(cov_data))) {
     for (j in seq_along(var_cols)) {
       setting <- cov_data[i, var_cols[j]]
-      if (!setting %in% valid_settings) {
+      if (!is.logical(setting) && !is.na(setting)) {
         return(FALSE)
       }
     }
   }
   
-  # Check diagonal consistency (should be variance-related)
+  # Check diagonal consistency (should be logical)
   for (i in seq_len(nrow(cov_data))) {
     diagonal_setting <- cov_data[i, var_cols[i]]
-    if (!diagonal_setting %in% c("auto", "fix", "0")) {
+    if (!is.logical(diagonal_setting) && !is.na(diagonal_setting)) {
       return(FALSE)
     }
   }
