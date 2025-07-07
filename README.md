@@ -74,6 +74,9 @@ if (!requireNamespace("readflex", quietly = TRUE)) {
 library(stringr)
 library(shiny)
 
+# ── Define helper operator (needed for Structura) ────────────
+`%||%` <- function(x, y) if (!is.null(x)) x else y
+
 # ── Function: Detect host IPv4 address ───────────────────────
 get_ip <- function() {
   sysname <- Sys.info()[["sysname"]]
