@@ -221,13 +221,9 @@ data_module_server <- function(input, output, session, shared_values) {
             groups <- list()
             
             # Safe method: Check for specific known patterns
-            # Pattern 1: Variables starting with "school" (model.matrix output)
-            school_vars <- var_names[grepl("^school", var_names, ignore.case = TRUE)]
-            if (length(school_vars) >= 2) {
-              groups[["school"]] <- school_vars
-            }
+            # No hardcoded patterns - use generic detection only
             
-            # Pattern 2: Standard underscore separation (e.g., sex_male, sex_female)
+            # Pattern 1: Standard underscore separation (e.g., category_value1, category_value2)
             for (name in var_names) {
               if (grepl("_", name)) {
                 base_name <- sub("_[^_]*$", "", name)
@@ -240,8 +236,8 @@ data_module_server <- function(input, output, session, shared_values) {
               }
             }
             
-            # Pattern 3: Variables starting with same word followed by capital letter or number
-            # (e.g., gradeA, gradeB, grade1, grade2)
+            # Pattern 2: Variables starting with same word followed by capital letter or number
+            # (e.g., categoryA, categoryB, category1, category2)
             for (name in var_names) {
               # Extract base (letters at start)
               base_match <- regmatches(name, regexpr("^[a-zA-Z]+", name))

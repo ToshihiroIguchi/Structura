@@ -72,11 +72,35 @@ ui <- fluidPage(
                       h4("Variance & Covariance"),
                       radioButtons("covariance_mode", "Covariance Settings:",
                                    choices = c("Automatic (default)" = "auto",
+                                               "Semi-automatic" = "semi",
                                                "Custom settings" = "custom"),
                                    selected = "auto", inline = TRUE),
                       conditionalPanel(
+                        condition = "input.covariance_mode == 'semi'",
+                        h5("Covariance Options"),
+                        checkboxInput("cov_latent_latent", 
+                                      "Estimate covariance between different latent variables", 
+                                      value = TRUE),
+                        checkboxInput("cov_observed_observed", 
+                                      "Estimate covariance between different observed variables", 
+                                      value = TRUE),
+                        checkboxInput("cov_same_variable", 
+                                      "Estimate variance of same variables", 
+                                      value = TRUE)
+                      ),
+                      conditionalPanel(
                         condition = "input.covariance_mode == 'custom'",
                         rHandsontableOutput("covariance_matrix")
+                      ),
+                      tags$hr(),
+                      h4("Variables Overview"),
+                      tabsetPanel(
+                        tabPanel("Measurement Model Variables",
+                                 DTOutput("measurement_variables_table")),
+                        tabPanel("Structural Model Variables",
+                                 DTOutput("structural_variables_table")),
+                        tabPanel("All Variables Summary",
+                                 DTOutput("all_variables_summary"))
                       ),
                       tags$hr(),
                       h4("Manual Equations"),

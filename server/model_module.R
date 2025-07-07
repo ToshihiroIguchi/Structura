@@ -90,12 +90,51 @@ model_module_server <- function(input, output, session, shared_values, data_modu
       meas <- input_table_data()
       
       if (!is.null(df) && !is.null(meas)) {
-        # Get all variables (observed + latent)
-        deps <- as.character(input$display_columns %||% names(df))
-        vars <- names(meas)[4:ncol(meas)]
-        row_has_indicator <- apply(meas[vars], 1, function(x) any(as.logical(x)))
-        latent_vars <- setdiff(na.omit(unique(meas$Indicator[row_has_indicator])), "")
-        all_vars <- unique(c(deps, latent_vars))
+        # Get only variables that are actually used in the model (same logic as Variables Overview)
+        all_vars <- character(0)
+        
+        # Step 1: Get observed variables actually used in measurement model
+        obs_vars_in_measurement <- character(0)
+        for (i in seq_len(nrow(meas))) {
+          if (nzchar(meas$Latent[i])) {
+            vars <- names(meas)[4:ncol(meas)]
+            selected_vars <- vars[as.logical(meas[i, vars])]
+            obs_vars_in_measurement <- c(obs_vars_in_measurement, selected_vars)
+          }
+        }
+        
+        # Step 2: Get latent variables from measurement model
+        latent_vars <- character(0)
+        for (i in seq_len(nrow(meas))) {
+          latent_var <- meas$Latent[i]
+          if (nzchar(latent_var)) {
+            vars <- names(meas)[4:ncol(meas)]
+            if (any(as.logical(meas[i, vars]))) {
+              latent_vars <- c(latent_vars, latent_var)
+            }
+          }
+        }
+        
+        # Step 3: Get variables actually used in structural model
+        vars_in_structural <- character(0)
+        if (!is.null(input$checkbox_matrix)) {
+          struc <- hot_to_r(input$checkbox_matrix)
+          if (!is.null(struc)) {
+            for (i in seq_len(nrow(struc))) {
+              dep_var <- struc$Dependent[i]
+              if (nzchar(dep_var)) {
+                predictors <- names(struc)[3:ncol(struc)]
+                selected_preds <- predictors[as.logical(struc[i, predictors])]
+                if (length(selected_preds) > 0) {
+                  vars_in_structural <- c(vars_in_structural, dep_var, selected_preds)
+                }
+              }
+            }
+          }
+        }
+        
+        # Step 4: Combine only actually used variables
+        all_vars <- unique(c(obs_vars_in_measurement, latent_vars, vars_in_structural))
         
         if (length(all_vars) > 0) {
           # Create true symmetric matrix structure (square matrix)
@@ -385,7 +424,95 @@ model_module_server <- function(input, output, session, shared_values, data_modu
       
       # Covariance model lines
       clines <- NULL
-      if (!is.null(input$covariance_mode) && input$covariance_mode == "custom" && !is.null(input$covariance_matrix)) {
+      if (!is.null(input$covariance_mode) && input$covariance_mode == "semi") {
+        # Semi-automatic mode: use only variables from Variables Overview
+        df <- data_module$processed_data()
+        meas <- input_table_data()
+        
+        if (!is.null(df) && !is.null(meas)) {
+          # Get only variables that are actually used in the model
+          all_model_vars <- character(0)
+          
+          # Step 1: Get observed variables actually used in measurement model
+          obs_vars_in_measurement <- character(0)
+          for (i in seq_len(nrow(meas))) {
+            if (nzchar(meas$Latent[i])) {
+              vars <- names(meas)[4:ncol(meas)]
+              selected_vars <- vars[as.logical(meas[i, vars])]
+              obs_vars_in_measurement <- c(obs_vars_in_measurement, selected_vars)
+            }
+          }
+          
+          # Step 2: Get latent variables from measurement model
+          latent_vars <- character(0)
+          for (i in seq_len(nrow(meas))) {
+            latent_var <- meas$Latent[i]
+            if (nzchar(latent_var)) {
+              vars <- names(meas)[4:ncol(meas)]
+              if (any(as.logical(meas[i, vars]))) {
+                latent_vars <- c(latent_vars, latent_var)
+              }
+            }
+          }
+          
+          # Step 3: Get variables actually used in structural model
+          vars_in_structural <- character(0)
+          if (!is.null(input$checkbox_matrix)) {
+            struc <- hot_to_r(input$checkbox_matrix)
+            if (!is.null(struc)) {
+              for (i in seq_len(nrow(struc))) {
+                dep_var <- struc$Dependent[i]
+                if (nzchar(dep_var)) {
+                  predictors <- names(struc)[3:ncol(struc)]
+                  selected_preds <- predictors[as.logical(struc[i, predictors])]
+                  if (length(selected_preds) > 0) {
+                    vars_in_structural <- c(vars_in_structural, dep_var, selected_preds)
+                  }
+                }
+              }
+            }
+          }
+          
+          # Step 4: Combine only actually used variables
+          all_model_vars <- unique(c(obs_vars_in_measurement, latent_vars, vars_in_structural))
+          
+          # Generate covariance constraints based on user selections
+          cov_constraints <- character(0)
+          
+          for (i in seq_along(all_model_vars)) {
+            for (j in seq_along(all_model_vars)) {
+              if (i < j) {  # Upper triangle only
+                var1 <- all_model_vars[i]
+                var2 <- all_model_vars[j]
+                
+                # Check if both variables are latent
+                var1_is_latent <- var1 %in% latent_vars
+                var2_is_latent <- var2 %in% latent_vars
+                
+                if (var1_is_latent && var2_is_latent) {
+                  # Covariance between different latent variables
+                  if (!is.null(input$cov_latent_latent) && !input$cov_latent_latent) {
+                    cov_constraints <- c(cov_constraints, paste0(var1, " ~~ 0*", var2))
+                  }
+                } else if (!var1_is_latent && !var2_is_latent) {
+                  # Covariance between different observed variables
+                  if (is.null(input$cov_observed_observed) || !input$cov_observed_observed) {
+                    cov_constraints <- c(cov_constraints, paste0(var1, " ~~ 0*", var2))
+                  }
+                }
+              } else if (i == j) {
+                # Same variable (variance)
+                var1 <- all_model_vars[i]
+                if (!is.null(input$cov_same_variable) && !input$cov_same_variable) {
+                  cov_constraints <- c(cov_constraints, paste0(var1, " ~~ 0*", var1))
+                }
+              }
+            }
+          }
+          
+          clines <- cov_constraints
+        }
+      } else if (!is.null(input$covariance_mode) && input$covariance_mode == "custom" && !is.null(input$covariance_matrix)) {
         cov_data <- hot_to_r(input$covariance_matrix)
         if (!is.null(cov_data)) {
           # Validate covariance matrix structure
@@ -689,6 +816,239 @@ model_module_server <- function(input, output, session, shared_values, data_modu
     }, error = function(e) {
       showNotification(
         paste("Parameter table error:", e$message),
+        type = "error",
+        duration = 3
+      )
+      NULL
+    })
+  })
+  
+  # Variables overview tables
+  output$measurement_variables_table <- renderDT({
+    meas <- input_table_data()
+    req(meas)
+    
+    tryCatch({
+      # Extract measurement model variables
+      measurement_vars <- data.frame(
+        Latent_Variable = character(0),
+        Observed_Variables = character(0),
+        Count = numeric(0),
+        stringsAsFactors = FALSE
+      )
+      
+      for (i in seq_len(nrow(meas))) {
+        latent_var <- meas$Latent[i]
+        if (nzchar(latent_var)) {
+          vars <- names(meas)[4:ncol(meas)]
+          selected_vars <- vars[as.logical(meas[i, vars])]
+          
+          if (length(selected_vars) > 0) {
+            measurement_vars <- rbind(measurement_vars, data.frame(
+              Latent_Variable = latent_var,
+              Observed_Variables = paste(selected_vars, collapse = ", "),
+              Count = length(selected_vars),
+              stringsAsFactors = FALSE
+            ))
+          }
+        }
+      }
+      
+      datatable(measurement_vars, 
+                extensions = 'Buttons',
+                options = list(
+                  pageLength = 10,
+                  dom = 'Bfrtip',
+                  buttons = list(
+                    list(extend = 'copy', text = 'Copy to Clipboard'),
+                    list(extend = 'csv', text = 'Download CSV'),
+                    list(extend = 'excel', text = 'Download Excel')
+                  )
+                ))
+    }, error = function(e) {
+      showNotification(
+        paste("Measurement variables table error:", e$message),
+        type = "error",
+        duration = 3
+      )
+      NULL
+    })
+  })
+  
+  output$structural_variables_table <- renderDT({
+    req(input$checkbox_matrix)
+    
+    tryCatch({
+      struc <- hot_to_r(input$checkbox_matrix)
+      req(struc)
+      
+      # Extract structural model variables
+      structural_vars <- data.frame(
+        Dependent_Variable = character(0),
+        Independent_Variables = character(0),
+        Count = numeric(0),
+        stringsAsFactors = FALSE
+      )
+      
+      for (i in seq_len(nrow(struc))) {
+        dep_var <- struc$Dependent[i]
+        if (nzchar(dep_var)) {
+          predictors <- names(struc)[3:ncol(struc)]
+          selected_preds <- predictors[as.logical(struc[i, predictors])]
+          
+          if (length(selected_preds) > 0) {
+            structural_vars <- rbind(structural_vars, data.frame(
+              Dependent_Variable = dep_var,
+              Independent_Variables = paste(selected_preds, collapse = ", "),
+              Count = length(selected_preds),
+              stringsAsFactors = FALSE
+            ))
+          }
+        }
+      }
+      
+      datatable(structural_vars, 
+                extensions = 'Buttons',
+                options = list(
+                  pageLength = 10,
+                  dom = 'Bfrtip',
+                  buttons = list(
+                    list(extend = 'copy', text = 'Copy to Clipboard'),
+                    list(extend = 'csv', text = 'Download CSV'),
+                    list(extend = 'excel', text = 'Download Excel')
+                  )
+                ))
+    }, error = function(e) {
+      showNotification(
+        paste("Structural variables table error:", e$message),
+        type = "error",
+        duration = 3
+      )
+      NULL
+    })
+  })
+  
+  output$all_variables_summary <- renderDT({
+    df <- data_module$processed_data()
+    meas <- input_table_data()
+    req(df, meas)
+    
+    tryCatch({
+      # Get all variables used in the model
+      all_vars <- data.frame(
+        Variable_Name = character(0),
+        Variable_Type = character(0),
+        Used_In = character(0),
+        Data_Type = character(0),
+        Missing_Values = numeric(0),
+        stringsAsFactors = FALSE
+      )
+      
+      # Get observed variables from data
+      observed_vars <- names(df)
+      
+      # Get latent variables from measurement model
+      latent_vars <- character(0)
+      if (!is.null(meas)) {
+        for (i in seq_len(nrow(meas))) {
+          latent_var <- meas$Latent[i]
+          if (nzchar(latent_var)) {
+            vars <- names(meas)[4:ncol(meas)]
+            if (any(as.logical(meas[i, vars]))) {
+              latent_vars <- c(latent_vars, latent_var)
+            }
+          }
+        }
+      }
+      
+      # Process observed variables
+      for (var in observed_vars) {
+        used_in <- character(0)
+        
+        # Check if used in measurement model
+        if (!is.null(meas)) {
+          for (i in seq_len(nrow(meas))) {
+            vars <- names(meas)[4:ncol(meas)]
+            if (var %in% vars && as.logical(meas[i, var])) {
+              used_in <- c(used_in, "Measurement Model")
+              break
+            }
+          }
+        }
+        
+        # Check if used in structural model
+        if (!is.null(input$checkbox_matrix)) {
+          struc <- hot_to_r(input$checkbox_matrix)
+          if (!is.null(struc)) {
+            for (i in seq_len(nrow(struc))) {
+              if (struc$Dependent[i] == var) {
+                used_in <- c(used_in, "Structural Model (Dependent)")
+              }
+              predictors <- names(struc)[3:ncol(struc)]
+              if (var %in% predictors && as.logical(struc[i, var])) {
+                used_in <- c(used_in, "Structural Model (Independent)")
+              }
+            }
+          }
+        }
+        
+        # Calculate missing values
+        missing_count <- sum(is.na(df[[var]]))
+        
+        all_vars <- rbind(all_vars, data.frame(
+          Variable_Name = var,
+          Variable_Type = "Observed",
+          Used_In = if (length(used_in) > 0) paste(unique(used_in), collapse = ", ") else "Not Used",
+          Data_Type = class(df[[var]])[1],
+          Missing_Values = missing_count,
+          stringsAsFactors = FALSE
+        ))
+      }
+      
+      # Process latent variables
+      for (var in latent_vars) {
+        used_in <- "Measurement Model"
+        
+        # Check if used in structural model
+        if (!is.null(input$checkbox_matrix)) {
+          struc <- hot_to_r(input$checkbox_matrix)
+          if (!is.null(struc)) {
+            for (i in seq_len(nrow(struc))) {
+              if (struc$Dependent[i] == var) {
+                used_in <- paste(used_in, "Structural Model (Dependent)", sep = ", ")
+              }
+              predictors <- names(struc)[3:ncol(struc)]
+              if (var %in% predictors && as.logical(struc[i, var])) {
+                used_in <- paste(used_in, "Structural Model (Independent)", sep = ", ")
+              }
+            }
+          }
+        }
+        
+        all_vars <- rbind(all_vars, data.frame(
+          Variable_Name = var,
+          Variable_Type = "Latent",
+          Used_In = used_in,
+          Data_Type = "Latent Factor",
+          Missing_Values = 0,
+          stringsAsFactors = FALSE
+        ))
+      }
+      
+      datatable(all_vars, 
+                extensions = 'Buttons',
+                options = list(
+                  pageLength = 15,
+                  dom = 'Bfrtip',
+                  buttons = list(
+                    list(extend = 'copy', text = 'Copy to Clipboard'),
+                    list(extend = 'csv', text = 'Download CSV'),
+                    list(extend = 'excel', text = 'Download Excel')
+                  )
+                ))
+    }, error = function(e) {
+      showNotification(
+        paste("All variables summary error:", e$message),
         type = "error",
         duration = 3
       )
