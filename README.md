@@ -46,9 +46,31 @@ Place the following snippet in your `README.md` under a “Hosting” or “Deve
 
 ```r
 # ── Packages ──────────────────────────────────────────────────
-if (!requireNamespace("stringr", quietly = TRUE)) {
-  install.packages("stringr")
+# Install required packages if not already installed
+required_packages <- c("stringr", "shiny", "shinyjs", "DT", "rhandsontable", 
+                      "lavaan", "DiagrammeR", "ggplot2", "reshape2", "markdown", "scales")
+
+for (pkg in required_packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg)
+  }
 }
+
+# Install GitHub packages
+if (!requireNamespace("semDiagram", quietly = TRUE)) {
+  if (!requireNamespace("devtools", quietly = TRUE)) {
+    install.packages("devtools")
+  }
+  devtools::install_github("ToshihiroIguchi/semDiagram", dependencies = TRUE, upgrade = "never")
+}
+
+if (!requireNamespace("readflex", quietly = TRUE)) {
+  if (!requireNamespace("devtools", quietly = TRUE)) {
+    install.packages("devtools")
+  }
+  devtools::install_github("ToshihiroIguchi/readflex", dependencies = TRUE, upgrade = "never")
+}
+
 library(stringr)
 library(shiny)
 
