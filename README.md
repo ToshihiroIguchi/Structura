@@ -77,6 +77,25 @@ library(shiny)
 # ── Define helper operator (needed for Structura) ────────────
 `%||%` <- function(x, y) if (!is.null(x)) x else y
 
+# ── Preload all necessary libraries ──────────────────────────
+library(shinyjs)
+library(DT)
+library(rhandsontable)
+library(lavaan)
+library(DiagrammeR)
+library(ggplot2)
+library(reshape2)
+library(markdown)
+library(scales)
+
+# Load GitHub packages if available
+if (requireNamespace("semDiagram", quietly = TRUE)) {
+  library(semDiagram)
+}
+if (requireNamespace("readflex", quietly = TRUE)) {
+  library(readflex)
+}
+
 # ── Function: Detect host IPv4 address ───────────────────────
 get_ip <- function() {
   sysname <- Sys.info()[["sysname"]]
