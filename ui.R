@@ -93,16 +93,6 @@ ui <- fluidPage(
                         rHandsontableOutput("covariance_matrix")
                       ),
                       tags$hr(),
-                      h4("Variables Overview"),
-                      tabsetPanel(
-                        tabPanel("Measurement Model Variables",
-                                 DTOutput("measurement_variables_table")),
-                        tabPanel("Structural Model Variables",
-                                 DTOutput("structural_variables_table")),
-                        tabPanel("All Variables Summary",
-                                 DTOutput("all_variables_summary"))
-                      ),
-                      tags$hr(),
                       h4("Manual Equations"),
                       textAreaInput("extra_eq",
                                     "Additional lavaan syntax (one formula per line):",
