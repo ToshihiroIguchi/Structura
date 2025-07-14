@@ -114,12 +114,10 @@ ui <- fluidPage(
                column(width = 5,
                       tabsetPanel(id = "right_tabs", type = "tabs",
                                   tabPanel("Diagnostics",
-                                           conditionalPanel(
-                                             condition = "output.fit_alert != ''",
-                                             div(id = "fit_alert_box",
-                                                 textOutput("fit_alert"),
-                                                 class = "alert-box")
-                                           ),
+                                           div(id = "fit_alert_box",
+                                               textOutput("fit_alert"),
+                                               class = "alert-box",
+                                               style = "display: none;"),
                                            h4("Fit Indices"),
                                            DTOutput("fit_indices")),
                                   tabPanel("Equations",
