@@ -1056,6 +1056,44 @@ model_module_server <- function(input, output, session, shared_values, data_modu
     })
   })
   
+  # Enlarged Path Diagram for Details tab
+  output$sem_plot_enlarged <- renderGrViz({
+    model <- fit_model_safe()
+    req(model)
+    validate(need(model$ok, model$msg_friendly))
+    
+    tryCatch({
+      std_for_plot <- if (!is.null(input$analysis_mode) && input$analysis_mode == "std") {
+        TRUE
+      } else {
+        !is.null(input$diagram_std) && input$diagram_std
+      }
+      
+      layout_parts <- if (!is.null(input$layout_style)) {
+        strsplit(input$layout_style, "_", fixed = TRUE)[[1]]
+      } else {
+        c("dot", "LR")
+      }
+      
+      eng <- layout_parts[1]
+      rank <- ifelse(length(layout_parts) == 2, layout_parts[2], "LR")
+      
+      semDiagram(model$fit, 
+                 standardized = std_for_plot,
+                 layout = rank, 
+                 engine = eng)
+                 
+    }, error = function(e) {
+      # Return empty diagram with error message
+      DiagrammeR::grViz("
+        digraph {
+          node [shape=box]
+          'Enlarged View' [label='Path diagram will appear here after running the model']
+        }
+      ")
+    })
+  })
+  
   # Return values for other modules
   return(list(
     lavaan_model_str = lavaan_model_str,

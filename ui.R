@@ -146,6 +146,10 @@ ui <- fluidPage(
 
     # ---------------- Details tab --------------------------------
     tabPanel("Details",
+             h4("Path Diagram - Enlarged View"),
+             div(style = "height: 80vh; overflow: auto; text-align: center; border: 1px solid #ddd; margin-bottom: 20px;",
+                 grVizOutput("sem_plot_enlarged", width = "100%", height = "75vh")),
+             tags$hr(),
              h4("Parameter Estimates"),
              DTOutput("param_tbl"),
              tags$hr(),
