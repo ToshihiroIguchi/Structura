@@ -191,6 +191,11 @@ data_module_server <- function(input, output, session, shared_values) {
     req(processed_data())
     df <- processed_data()
     
+    # Only assess quality for displayed columns
+    if (!is.null(input$display_columns) && length(input$display_columns) > 0) {
+      df <- df[, intersect(input$display_columns, names(df)), drop = FALSE]
+    }
+    
     tryCatch({
       numeric_data <- df[sapply(df, is.numeric)]
       

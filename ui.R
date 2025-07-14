@@ -28,6 +28,23 @@ ui <- fluidPage(
              uiOutput("log_transform_ui"),
              uiOutput("display_column_ui"),
              
+             h4("Analysis Settings"),
+             fluidRow(
+               column(6,
+                      radioButtons("analysis_mode", "Analysis mode:",
+                                   choices = c("Raw (unstandardized)"  = "raw",
+                                               "Standardized (scaled)" = "std"),
+                                   selected = "std", inline = TRUE)),
+               column(6,
+                      selectInput("missing_method", "Missing Data Handling:",
+                                  choices = c("Listwise deletion"          = "listwise",
+                                              "FIML (ML)"                  = "ml",
+                                              "FIML including exogenous x" = "ml.x",
+                                              "Two-stage ML"               = "two.stage",
+                                              "Robust two-stage ML"        = "robust.two.stage"),
+                                  selected = "listwise"))
+             ),
+             
              # Data Quality Alert Box
              div(id = "data_quality_alert_box",
                  style = "margin-bottom: 10px;",
@@ -43,17 +60,6 @@ ui <- fluidPage(
              fluidRow(
                # ---------- Left column (inputs) -------------------
                column(width = 7,
-                      radioButtons("analysis_mode", "Analysis mode:",
-                                   choices = c("Raw (unstandardized)"  = "raw",
-                                               "Standardized (scaled)" = "std"),
-                                   selected = "std", inline = TRUE),
-                      selectInput("missing_method", "Missing Data Handling:",
-                                  choices = c("Listwise deletion"          = "listwise",
-                                              "FIML (ML)"                  = "ml",
-                                              "FIML including exogenous x" = "ml.x",
-                                              "Two-stage ML"               = "two.stage",
-                                              "Robust two-stage ML"        = "robust.two.stage"),
-                                  selected = "listwise"),
                       conditionalPanel(
                         condition = "input.analysis_mode == 'raw'",
                         checkboxInput("diagram_std",
@@ -108,9 +114,12 @@ ui <- fluidPage(
                column(width = 5,
                       tabsetPanel(id = "right_tabs", type = "tabs",
                                   tabPanel("Diagnostics",
-                                           div(id = "fit_alert_box",
-                                               textOutput("fit_alert"),
-                                               class = "alert-box"),
+                                           conditionalPanel(
+                                             condition = "output.fit_alert != ''",
+                                             div(id = "fit_alert_box",
+                                                 textOutput("fit_alert"),
+                                                 class = "alert-box")
+                                           ),
                                            h4("Fit Indices"),
                                            DTOutput("fit_indices")),
                                   tabPanel("Equations",
