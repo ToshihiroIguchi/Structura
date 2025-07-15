@@ -1,8 +1,18 @@
 # -*- coding: utf-8 -*-
 # ---------------------------------------------------------------
-# Structura – ui.R
-#   * Pure UI definition; all logic in server.R
+# Structura – app.R (Unified Application)
+#   * Complete Shiny application with UI and Server
+#   * Modular architecture with clean dependencies
 # ---------------------------------------------------------------
+
+# Load dependencies
+source("global.R")
+source("helpers.R")
+source("modules.R")
+
+# ===============================================================
+# UI DEFINITION
+# ===============================================================
 
 ui <- fluidPage(
   useShinyjs(),
@@ -160,3 +170,52 @@ ui <- fluidPage(
     tabPanel("Help", includeMarkdown("help.md"))
   )
 )
+
+# ===============================================================
+# SERVER DEFINITION
+# ===============================================================
+
+server <- function(input, output, session) {
+  
+  write_log("INFO", "Server function initialized")
+  
+  # Session cleanup on disconnect
+  session$onSessionEnded(function() {
+    write_log("INFO", "User session ended")
+  })
+  
+  # Shared reactive values container (replaces global variables)
+  shared_values <- reactiveValues(
+    fit_model = NULL,
+    model_syntax = NULL,
+    correlation_cache = NULL,
+    processed_data = NULL
+  )
+  
+  # Initialize data module
+  data_module <- data_module_server(input, output, session, shared_values)
+  
+  # Show initial data loading modal
+  data_module$show_modal()
+  
+  # Initialize model module with shared values and data dependency
+  model_module <- model_module_server(input, output, session, shared_values, data_module)
+  
+  # Initialize plot module with shared values dependency
+  plot_module <- plot_module_server(input, output, session, shared_values)
+  
+  # Session cleanup (no longer needed for global variables)
+  onSessionEnded(function() {
+    # Clean up reactive values
+    shared_values$fit_model <- NULL
+    shared_values$model_syntax <- NULL
+    shared_values$correlation_cache <- NULL
+    shared_values$processed_data <- NULL
+  })
+}
+
+# ===============================================================
+# RUN APPLICATION
+# ===============================================================
+
+shinyApp(ui = ui, server = server)

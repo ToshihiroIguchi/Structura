@@ -1,5 +1,440 @@
-# Model Management Module
-# Handles SEM model specification, fitting, and results
+# -*- coding: utf-8 -*-
+# ---------------------------------------------------------------
+# Structura – modules.R (Unified Server Modules)
+#   * All server-side logic consolidated
+#   * Data, Model, and Plot modules integrated
+# ---------------------------------------------------------------
+
+# ===============================================================
+# DATA MODULE
+# ===============================================================
+# Handles data loading, preprocessing, and display
+
+data_module_server <- function(input, output, session, shared_values) {
+  
+  # Helper function to format numeric columns for display
+  format_numeric_for_display <- function(df) {
+    formatted_df <- df
+    for (i in seq_along(formatted_df)) {
+      if (is.numeric(formatted_df[[i]])) {
+        formatted_df[[i]] <- sapply(formatted_df[[i]], function(x) {
+          if (is.na(x)) {
+            return(NA_character_)
+          } else if (abs(x) >= 1000 || (abs(x) < 0.001 && x != 0)) {
+            return(sprintf("%.3e", x))
+          } else {
+            return(sprintf("%.3f", x))
+          }
+        })
+      }
+    }
+    return(formatted_df)
+  }
+  
+  # Reactive data store
+  data <- reactiveVal(NULL)
+  
+  # Initial modal for data loading
+  show_data_modal <- function() {
+    showModal(
+      modalDialog(
+        title = span(icon("upload"), "Load Data"),
+        tabsetPanel(
+          tabPanel("Upload File",
+                   fileInput("datafile", NULL,
+                             buttonLabel = "Browse…",
+                             placeholder = "Upload CSV",
+                             accept = c(".csv", "text/csv", "application/csv"))
+          ),
+          tabPanel("Sample Dataset",
+                   radioButtons("sample_ds", "Or choose a demo dataset:",
+                                choices = c("None",
+                                            "HolzingerSwineford1939",
+                                            "PoliticalDemocracy",
+                                            "Demo.growth",
+                                            "Demo.twolevel",
+                                            "FacialBurns"))
+          )
+        ),
+        easyClose = FALSE,
+        footer = NULL
+      )
+    )
+  }
+  
+  # File upload observer
+  observeEvent(input$datafile, {
+    req(input$datafile)
+    
+    removeModal()
+    updateRadioButtons(session, "sample_ds", selected = "None")
+    
+    tryCatch({
+      loaded_data <- loadDataOnce(input$datafile)
+      data(loaded_data)
+      shared_values$processed_data <- loaded_data
+      
+      showNotification(
+        paste("Successfully loaded:", nrow(loaded_data), "rows,", ncol(loaded_data), "columns"),
+        type = "message",
+        duration = 3
+      )
+    }, error = function(e) {
+      showNotification(
+        paste("Error loading file:", e$message),
+        type = "error",
+        duration = 5
+      )
+      show_data_modal()
+    })
+  })
+  
+  # Sample dataset observer
+  observeEvent(input$sample_ds, {
+    if (input$sample_ds != "None") {
+      removeModal()
+      
+      tryCatch({
+        sample_data <- switch(input$sample_ds,
+                              "HolzingerSwineford1939" = lavaan::HolzingerSwineford1939,
+                              "PoliticalDemocracy" = lavaan::PoliticalDemocracy,
+                              "Demo.growth" = lavaan::Demo.growth,
+                              "Demo.twolevel" = lavaan::Demo.twolevel,
+                              "FacialBurns" = {
+                                if (requireNamespace("semPlot", quietly = TRUE)) {
+                                  semPlot::FacialBurns
+                                } else {
+                                  stop("Package 'semPlot' required for FacialBurns dataset")
+                                }
+                              })
+        
+        data(sample_data)
+        shared_values$processed_data <- sample_data
+        
+        showNotification(
+          paste("Loaded sample dataset:", input$sample_ds),
+          type = "message",
+          duration = 3
+        )
+      }, error = function(e) {
+        showNotification(
+          paste("Error loading sample dataset:", e$message),
+          type = "error",
+          duration = 5
+        )
+        show_data_modal()
+      })
+    }
+  })
+  
+  # Data table output
+  output$datatable <- DT::renderDataTable({
+    req(data())
+    format_numeric_for_display(data())
+  }, options = list(
+    pageLength = 10,
+    scrollX = TRUE,
+    dom = 'Bfrtip',
+    columnDefs = list(
+      list(className = 'dt-center', targets = '_all')
+    ),
+    buttons = list(
+      list(extend = 'copy', text = 'Copy to Clipboard'),
+      list(extend = 'csv', text = 'Download CSV'),
+      list(extend = 'excel', text = 'Download Excel')
+    )
+  ), extensions = 'Buttons')
+  
+  # Log transform UI
+  output$log_transform_ui <- renderUI({
+    req(data())
+    df <- data()
+    numeric_vars <- names(df)[sapply(df, is.numeric)]
+    
+    if (length(numeric_vars) > 0) {
+      checkboxGroupInput("log_transform_vars",
+                         "Apply log transformation to:",
+                         choices = numeric_vars,
+                         inline = TRUE)
+    }
+  })
+  
+  # Display column UI
+  output$display_column_ui <- renderUI({
+    req(data())
+    df <- data()
+    
+    # Get processed data to show actual column names after one-hot encoding
+    processed_df <- tryCatch({
+      # Simulate the one-hot encoding process to get column names
+      temp_df <- df
+      categorical_cols <- names(temp_df)[sapply(temp_df, function(x) is.character(x) || is.factor(x))]
+      
+      if (length(categorical_cols) > 0) {
+        for (col in categorical_cols) {
+          if (is.character(temp_df[[col]])) {
+            temp_df[[col]] <- as.factor(temp_df[[col]])
+          }
+          levels_to_encode <- levels(temp_df[[col]])
+          for (level in levels_to_encode) {
+            new_col_name <- paste0(col, "_", make.names(level))
+            temp_df[[new_col_name]] <- as.numeric(temp_df[[col]] == level)
+          }
+          temp_df[[col]] <- NULL
+        }
+      }
+      temp_df
+    }, error = function(e) df)
+    
+    # Identify original numeric columns (not one-hot encoded)
+    original_numeric_cols <- names(df)[sapply(df, is.numeric)]
+    
+    # Identify one-hot encoded columns
+    one_hot_cols <- setdiff(names(processed_df), original_numeric_cols)
+    
+    # Select only original numeric columns by default
+    default_selected <- original_numeric_cols
+    
+    checkboxGroupInput("display_columns",
+                       "Display columns:",
+                       choices = names(processed_df),
+                       selected = default_selected,
+                       inline = TRUE)
+  })
+  
+  # Processed data reactive
+  processed_data <- reactive({
+    req(data())
+    df <- data()
+    
+    # One-hot encoding for categorical variables
+    categorical_cols <- names(df)[sapply(df, function(x) is.character(x) || is.factor(x))]
+    
+    if (length(categorical_cols) > 0) {
+      # Create one-hot encoded variables
+      for (col in categorical_cols) {
+        # Convert to factor if character
+        if (is.character(df[[col]])) {
+          df[[col]] <- as.factor(df[[col]])
+        }
+        
+        # Get unique levels (excluding NA)
+        levels_to_encode <- levels(df[[col]])
+        
+        # Create dummy variables for each level
+        for (level in levels_to_encode) {
+          new_col_name <- paste0(col, "_", make.names(level))
+          df[[new_col_name]] <- as.numeric(df[[col]] == level)
+        }
+        
+        # Remove original categorical column
+        df[[col]] <- NULL
+      }
+    }
+    
+    # Apply log transformations
+    if (!is.null(input$log_transform_vars) && length(input$log_transform_vars) > 0) {
+      for (var in input$log_transform_vars) {
+        if (var %in% names(df) && is.numeric(df[[var]])) {
+          # Handle non-positive values
+          min_val <- min(df[[var]], na.rm = TRUE)
+          if (min_val <= 0) {
+            df[[var]] <- log(df[[var]] - min_val + 1)
+          } else {
+            df[[var]] <- log(df[[var]])
+          }
+        }
+      }
+    }
+    
+    # Apply standardization if analysis mode is "scale" or similar
+    if (!is.null(input$analysis_mode) && input$analysis_mode %in% c("scale", "standardized", "std")) {
+      numeric_cols <- sapply(df, is.numeric)
+      df[numeric_cols] <- lapply(df[numeric_cols], function(x) {
+        if (sd(x, na.rm = TRUE) > 0) {
+          scale(x)[, 1]
+        } else {
+          x
+        }
+      })
+    }
+    
+    # Filter displayed columns
+    if (!is.null(input$display_columns) && length(input$display_columns) > 0) {
+      df <- df[, intersect(input$display_columns, names(df)), drop = FALSE]
+    }
+    
+    shared_values$processed_data <- df
+    return(df)
+  })
+  
+  # Data quality assessment
+  data_quality_report <- reactive({
+    req(processed_data())
+    df <- processed_data()
+    
+    # Only assess quality for displayed columns
+    if (!is.null(input$display_columns) && length(input$display_columns) > 0) {
+      df <- df[, intersect(input$display_columns, names(df)), drop = FALSE]
+    }
+    
+    tryCatch({
+      numeric_data <- df[sapply(df, is.numeric)]
+      
+      if (ncol(numeric_data) < 2) {
+        return(list(
+          has_issues = FALSE,
+          message = "No quality issues detected.",
+          details = list()
+        ))
+      }
+      
+      issues <- list()
+      
+      # Check for missing data
+      missing_prop <- sum(is.na(df)) / (nrow(df) * ncol(df))
+      if (missing_prop > 0.1) {
+        issues <- append(issues, sprintf("High missing data: %.1f%%", missing_prop * 100))
+      }
+      
+      # Check for zero variance
+      zero_var_cols <- names(numeric_data)[sapply(numeric_data, function(x) {
+        clean_x <- x[!is.na(x)]
+        if (length(clean_x) < 2) return(TRUE)
+        var(clean_x, na.rm = TRUE) == 0 || sd(clean_x, na.rm = TRUE) < 1e-10
+      })]
+      
+      if (length(zero_var_cols) > 0) {
+        issues <- append(issues, paste("Zero variance:", paste(zero_var_cols, collapse = ", ")))
+      }
+      
+      # Check correlations
+      if (ncol(numeric_data) >= 2 && nrow(numeric_data) >= 3) {
+        cor_matrix <- cor(numeric_data, use = "pairwise.complete.obs")
+        
+        # Perfect correlations
+        perfect_cors <- which(abs(cor_matrix) >= 0.999 & cor_matrix != 1, arr.ind = TRUE)
+        if (nrow(perfect_cors) > 0) {
+          perfect_pairs <- character(0)
+          for (i in seq_len(nrow(perfect_cors))) {
+            row_idx <- perfect_cors[i, 1]
+            col_idx <- perfect_cors[i, 2]
+            if (row_idx < col_idx) {  # Avoid duplicates
+              var1 <- rownames(cor_matrix)[row_idx]
+              var2 <- colnames(cor_matrix)[col_idx]
+              r_val <- round(cor_matrix[row_idx, col_idx], 3)
+              perfect_pairs <- c(perfect_pairs, paste0(var1, " & ", var2, " (r=", r_val, ")"))
+            }
+          }
+          if (length(perfect_pairs) > 0) {
+            issues <- append(issues, paste("Perfect correlations:", paste(perfect_pairs, collapse = "; ")))
+          }
+        }
+      }
+      
+      return(list(
+        has_issues = length(issues) > 0,
+        message = if (length(issues) > 0) "Data quality issues detected:" else "No quality issues detected.",
+        details = issues
+      ))
+      
+    }, error = function(e) {
+      return(list(
+        has_issues = TRUE,
+        message = "Error in data quality assessment",
+        details = list(e$message)
+      ))
+    })
+  })
+  
+  # Data quality alert output
+  output$data_quality_alert <- renderUI({
+    report <- data_quality_report()
+    
+    if (report$has_issues) {
+      alert_content <- div(
+        h5(icon("exclamation-triangle"), report$message),
+        if (length(report$details) > 0) {
+          tags$ul(
+            lapply(report$details, function(detail) tags$li(detail))
+          )
+        }
+      )
+      
+      alert_style <- if (report$has_issues) "alert alert-warning" else "alert alert-info"
+      
+      div(
+        class = alert_style,
+        style = "margin-bottom: 15px;",
+        alert_content
+      )
+    }
+  })
+  
+  # Filtered table output
+  output$filtered_table <- DT::renderDataTable({
+    req(processed_data())
+    format_numeric_for_display(processed_data())
+  }, options = list(
+    pageLength = 10,
+    scrollX = TRUE,
+    dom = 'Bfrtip',
+    buttons = list(
+      list(extend = 'copy', text = 'Copy to Clipboard'),
+      list(extend = 'csv', text = 'Download CSV'),
+      list(extend = 'excel', text = 'Download Excel')
+    )
+  ), extensions = 'Buttons')
+  
+  # Correlation heatmap
+  output$corr_heatmap <- renderPlot({
+    req(processed_data())
+    df <- processed_data()
+    numeric_data <- df[sapply(df, is.numeric)]
+    
+    if (ncol(numeric_data) < 2) {
+      plot.new()
+      text(0.5, 0.5, "Need at least 2 numeric variables for correlation", cex = 1.2)
+      return()
+    }
+    
+    tryCatch({
+      cor_matrix <- cor(numeric_data, use = "pairwise.complete.obs")
+      
+      # Cache correlation for other modules
+      shared_values$correlation_cache <- cor_matrix
+      
+      # Convert to long format for ggplot
+      cor_long <- reshape2::melt(cor_matrix)
+      names(cor_long) <- c("Var1", "Var2", "value")
+      
+      ggplot(cor_long, aes(x = Var1, y = Var2, fill = value)) +
+        geom_tile() +
+        scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                             midpoint = 0, limit = c(-1, 1), space = "Lab",
+                             name = "Correlation") +
+        theme_minimal() +
+        theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank()) +
+        coord_fixed() +
+        geom_text(aes(label = sprintf("%.2f", value)), size = 3)
+    }, error = function(e) {
+      plot.new()
+      text(0.5, 0.5, paste("Error creating correlation plot:", e$message), cex = 1)
+    })
+  })
+  
+  return(list(
+    show_modal = show_data_modal,
+    processed_data = processed_data
+  ))
+}
+
+# ===============================================================
+# MODEL MODULE  
+# ===============================================================
+# Handles SEM model building, estimation, and results
 
 model_module_server <- function(input, output, session, shared_values, data_module) {
   
@@ -1099,5 +1534,161 @@ model_module_server <- function(input, output, session, shared_values, data_modu
     lavaan_model_str = lavaan_model_str,
     fit_model_safe = fit_model_safe,
     input_table_data = input_table_data
+  ))
+}
+
+# ===============================================================
+# PLOT MODULE
+# ===============================================================  
+# Handles plot generation and visualization
+
+plot_module_server <- function(input, output, session, shared_values) {
+  
+  # Correlation heatmap with caching
+  correlation_cache <- reactiveVal(NULL)
+  
+  # Cache correlation matrix when data changes
+  observe({
+    df <- shared_values$processed_data
+    if (!is.null(df) && !is.null(input$display_columns)) {
+      all_cols <- intersect(input$display_columns, names(df))
+      num_cols <- all_cols[sapply(df[, all_cols, drop = FALSE], is.numeric)]
+      
+      if (length(num_cols) >= 2) {
+        tryCatch({
+          cm <- cor(df[, num_cols, drop = FALSE], use = "pairwise.complete.obs")
+          cache_data <- list(matrix = cm, columns = num_cols)
+          correlation_cache(cache_data)
+          shared_values$correlation_cache <- cache_data
+        }, error = function(e) {
+          correlation_cache(NULL)
+          shared_values$correlation_cache <- NULL
+        })
+      } else {
+        correlation_cache(NULL)
+        shared_values$correlation_cache <- NULL
+      }
+    }
+  })
+  
+  # Render correlation heatmap with ggplot2
+  output$corr_heatmap <- renderPlot({
+    cache_data <- correlation_cache()
+    
+    # Show message when no data available
+    if (is.null(cache_data)) {
+      ggplot() + 
+        annotate("text", x = 0.5, y = 0.5, 
+                 label = "Select at least 2 numeric variables to display correlation heatmap",
+                 size = 5, color = "gray50") +
+        theme_void() +
+        xlim(0, 1) + ylim(0, 1)
+    } else {
+      tryCatch({
+        cm <- cache_data$matrix
+        n <- nrow(cm)
+        
+        # Remove upper triangle and diagonal (keep only lower triangle)
+        cm_display <- cm
+        cm_display[upper.tri(cm_display, diag = TRUE)] <- NA
+        
+        # Convert matrix to long format for ggplot2 using reshape2
+        melted_data <- melt(cm_display, na.rm = TRUE)
+        colnames(melted_data) <- c("Var1", "Var2", "value")
+        
+        # Create ggplot heatmap
+        p <- ggplot(melted_data, aes(x = Var2, y = Var1, fill = value)) +
+          geom_tile(color = "white", size = 0.5) +
+          scale_fill_gradient2(
+            low = "blue", 
+            mid = "white", 
+            high = "red",
+            midpoint = 0,
+            limits = c(-1, 1),
+            name = "Correlation"
+          ) +
+          geom_text(aes(label = sprintf("%.3f", value)), 
+                   color = ifelse(abs(melted_data$value) > 0.5, "white", "black"),
+                   size = 3) +
+          labs(title = "Correlation Matrix",
+               x = "", y = "") +
+          scale_y_discrete(limits = rev(levels(melted_data$Var1))) +
+          theme_minimal() +
+          theme(
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+            axis.text.y = element_text(size = 10),
+            plot.title = element_text(hjust = 0.5, size = 14),
+            legend.position = "right",
+            aspect.ratio = 0.8
+          )
+        
+        print(p)
+        
+      }, error = function(e) {
+        ggplot() + 
+          annotate("text", x = 0.5, y = 0.5, 
+                   label = "Unable to generate correlation plot.\nPlease ensure you have selected numeric variables with valid data.",
+                   size = 4, color = "red") +
+          theme_void() +
+          xlim(0, 1) + ylim(0, 1)
+      })
+    }
+  })
+  
+  # SEM path diagram UI
+  output$sem_plot_ui <- renderUI({
+    if (is.null(shared_values$model_syntax) || 
+        length(shared_values$model_syntax) == 0) {
+      return(div("Define a model to view the path diagram."))
+    }
+    
+    tryCatch({
+      grVizOutput("sem_plot")
+    }, error = function(e) {
+      div(style = "color:red;",
+          paste("Model Error:", e$message))
+    })
+  })
+  
+  # SEM path diagram
+  output$sem_plot <- renderGrViz({
+    model <- shared_values$fit_model
+    req(model)
+    validate(need(model$ok, model$msg_friendly))
+    
+    tryCatch({
+      std_for_plot <- if (!is.null(input$analysis_mode) && input$analysis_mode == "std") {
+        TRUE
+      } else {
+        !is.null(input$diagram_std) && input$diagram_std
+      }
+      
+      layout_parts <- if (!is.null(input$layout_style)) {
+        strsplit(input$layout_style, "_", fixed = TRUE)[[1]]
+      } else {
+        c("dot", "LR")
+      }
+      
+      eng <- layout_parts[1]
+      rank <- ifelse(length(layout_parts) == 2, layout_parts[2], "LR")
+      
+      semDiagram(model$fit, 
+                 standardized = std_for_plot,
+                 layout = rank, 
+                 engine = eng)
+                 
+    }, error = function(e) {
+      # Return empty diagram with error message
+      DiagrammeR::grViz("
+        digraph {
+          node [shape=box]
+          Error [label='Diagram generation failed']
+        }
+      ")
+    })
+  })
+  
+  return(list(
+    correlation_cache = correlation_cache
   ))
 }
