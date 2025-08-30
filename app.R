@@ -168,6 +168,9 @@ ui <- fluidPage(
                       actionButton("add_row", "Add Row", class = "btn btn-primary"),
                       tags$hr(),
                       h4("Structural Model"),
+                      p("Color intensity indicates R² strength (white: low, red: high). ",
+                        "Use as exploratory reference alongside theoretical knowledge.",
+                        style = "font-size: 12px; color: #666; margin-bottom: 10px;"),
                       rHandsontableOutput("checkbox_matrix"),
                       tags$hr(),
                       h4("Manual Equations"),
@@ -411,6 +414,31 @@ server <- function(input, output, session) {
     input_table_data(rbind(df, new_row))
   })
 
+  # ---------- Helper function for R² calculation -----------------
+  
+  compute_r2_matrix <- function(data, dep_vars, pred_vars) {
+    r2_matrix <- matrix(0, nrow = length(dep_vars), ncol = length(pred_vars),
+                        dimnames = list(dep_vars, pred_vars))
+    
+    for (i in seq_along(dep_vars)) {
+      dep <- dep_vars[i]
+      if (is.numeric(data[[dep]])) {
+        for (j in seq_along(pred_vars)) {
+          pred <- pred_vars[j]
+          if (is.numeric(data[[pred]]) && dep != pred) {
+            tryCatch({
+              fit <- lm(data[[dep]] ~ data[[pred]])
+              r2_matrix[i, j] <- summary(fit)$r.squared
+            }, error = function(e) {
+              r2_matrix[i, j] <- 0
+            })
+          }
+        }
+      }
+    }
+    r2_matrix
+  }
+
   # ---------- Structural table -----------------------------------
 
   output$checkbox_matrix <- renderRHandsontable({
@@ -422,6 +450,10 @@ server <- function(input, output, session) {
     convs <- setdiff(na.omit(unique(meas$Indicator[row_has_indicator])), "")
     items <- unique(c(deps, convs))
     if (!length(items)) return()
+    
+    # Compute R² matrix for color coding
+    r2_matrix <- compute_r2_matrix(df, items, items)
+    
     mat   <- data.frame(Dependent = items, Operator = "~",
                         stringsAsFactors = FALSE)
     for (col in items) mat[[col]] <- FALSE
@@ -429,11 +461,58 @@ server <- function(input, output, session) {
       hot_table(highlightReadOnly = TRUE)
     rh <- hot_col(rh, "Dependent", readOnly = TRUE)
     rh <- hot_col(rh, "Operator",  readOnly = TRUE)
-    for (col in items) rh <- hot_col(rh, col, type = "checkbox")
-    for (i in seq_along(items))
-      rh <- hot_cell(rh, row = i,
-                     col = match(items[i], colnames(mat)),
-                     readOnly = TRUE)
+    
+    # Set diagonal cells as readOnly before applying renderers
+    for (i in seq_along(items)) {
+      diag_col_index <- match(items[i], colnames(mat))
+      if (!is.na(diag_col_index)) {
+        rh <- hot_cell(rh, row = i, col = diag_col_index, readOnly = TRUE)
+      }
+    }
+    
+    # Apply color coding using custom renderer for each checkbox column
+    for (col_name in items) {
+      # Calculate R² values for this predictor column
+      r2_colors <- sapply(seq_along(items), function(row_idx) {
+        dep_var <- items[row_idx]
+        if (dep_var == col_name) {
+          return("#FFFFFF")  # White for diagonal (self-regression)
+        }
+        
+        r2_val <- tryCatch({
+          if (dep_var %in% rownames(r2_matrix) && col_name %in% colnames(r2_matrix)) {
+            r2_matrix[dep_var, col_name]
+          } else {
+            0
+          }
+        }, error = function(e) 0)
+        
+        # Create gradient: white (R²=0) to red (R²=1)
+        red_intensity <- min(1, max(0, r2_val))
+        rgb(1, 1 - red_intensity * 0.7, 1 - red_intensity * 0.7)
+      })
+      
+      # Create JavaScript renderer with row-specific colors
+      colors_js <- paste0("['", paste(r2_colors, collapse = "','"), "']")
+      diag_row <- match(col_name, items) - 1  # 0-indexed for JavaScript
+      
+      renderer_js <- paste0("
+        function(instance, td, row, col, prop, value, cellProperties) {
+          Handsontable.renderers.CheckboxRenderer.apply(this, arguments);
+          var colors = ", colors_js, ";
+          if (colors[row]) {
+            td.style.backgroundColor = colors[row];
+          }
+          if (row === ", diag_row, ") {
+            cellProperties.readOnly = true;
+            td.style.backgroundColor = '#f0f0f0';
+            td.style.cursor = 'not-allowed';
+            td.classList.add('htDimmed');
+          }
+        }")
+      
+      rh <- hot_col(rh, col_name, type = "checkbox", renderer = renderer_js)
+    }
     rh
   })
 
