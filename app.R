@@ -127,7 +127,24 @@ ui <- fluidPage(
 
     # -------------- Filtered tab ---------------------------------
     tabPanel("Filtered",
-             h4("Filtered Data"),
+             # ---- Analysis Settings (moved from Model tab) -----------
+             h4("Analysis Settings"),
+             radioButtons("analysis_mode", "Analysis mode:",
+                          choices  = c("Raw (unstandardized)"  = "raw",
+                                       "Standardized (scaled)" = "std"),
+                          selected = "std", inline = TRUE),
+             selectInput("missing_method", "Missing Data Handling:",
+                         choices = c(
+                           "Listwise deletion"           = "listwise",
+                           "FIML (ML)"                   = "ml",
+                           "FIML including exogenous x"  = "ml.x",
+                           "Two-stage ML"                = "two.stage",
+                           "Robust two-stage ML"         = "robust.two.stage"
+                         ), selected = "listwise"),
+             tags$hr(),
+             
+             # ---- Data Transformation & Selection --------------------
+             h4("Data Transformation & Selection"),
              uiOutput("log_transform_ui"),
              uiOutput("display_column_ui"),
              DTOutput("filtered_table"),
@@ -140,20 +157,6 @@ ui <- fluidPage(
              fluidRow(
                # ---------- Left column (inputs) -------------------
                column(width = 7,
-                      # ---- Analysis options -----------------------
-                      radioButtons("analysis_mode", "Analysis mode:",
-                                   choices  = c("Raw (unstandardized)"  = "raw",
-                                                "Standardized (scaled)" = "std"),
-                                   selected = "std", inline = TRUE),
-                      selectInput("missing_method", "Missing Data Handling:",
-                                  choices = c(
-                                    "Listwise deletion"           = "listwise",
-                                    "FIML (ML)"                   = "ml",
-                                    "FIML including exogenous x"  = "ml.x",
-                                    "Two-stage ML"                = "two.stage",
-                                    "Robust two-stage ML"         = "robust.two.stage"
-                                  ),
-                                  selected = "listwise"),
                       conditionalPanel(
                         condition = "input.analysis_mode == 'raw'",
                         checkboxInput("diagram_std",
