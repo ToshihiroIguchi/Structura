@@ -463,7 +463,7 @@ server <- function(input, output, session) {
                         stringsAsFactors = FALSE)
     for (col in items) mat[[col]] <- FALSE
     rh <- rhandsontable(mat, rowHeaders = FALSE) %>%
-      hot_table(highlightReadOnly = TRUE)
+      hot_table(highlightReadOnly = TRUE, fixedColumnsLeft = 2)
     rh <- hot_col(rh, "Dependent", readOnly = TRUE)
     rh <- hot_col(rh, "Operator",  readOnly = TRUE)
     
@@ -577,11 +577,27 @@ server <- function(input, output, session) {
                "Model did not converge. Check for variables with correlation = 1 and remove or combine them.",
            fit = fm)
     }, error = function(e) {
+      # Enhanced error message with specific diagnosis
+      error_msg <- conditionMessage(e)
+      
+      # Check for common lavaan errors and provide specific guidance
+      if (grepl("sample covariance matrix is not positive-definite|not positive definite", error_msg, ignore.case = TRUE)) {
+        friendly_msg <- "Model estimation failed: Variables are too highly correlated (near perfect correlation). This creates numerical instability in the covariance matrix. Try: (1) Remove one variable from highly correlated pairs, (2) Use more data samples, or (3) Select different variables with lower correlations."
+      } else if (grepl("convergence|converged", error_msg, ignore.case = TRUE)) {
+        friendly_msg <- "Model did not converge: The estimation algorithm could not find a stable solution. Try: (1) Check for perfect correlations between variables, (2) Simplify the model structure, or (3) Use different starting values."
+      } else if (grepl("identification|identified", error_msg, ignore.case = TRUE)) {
+        friendly_msg <- "Model identification problem: The model is under-identified (too few constraints). Try: (1) Add more observed variables, (2) Reduce the number of parameters, or (3) Add equality constraints."
+      } else if (grepl("degrees of freedom", error_msg, ignore.case = TRUE)) {
+        friendly_msg <- "Insufficient degrees of freedom: The model has too many parameters for the available data. Try: (1) Reduce model complexity, (2) Add more variables, or (3) Use a simpler model structure."
+      } else {
+        friendly_msg <- paste0("Estimation failed: ", error_msg, ". Try: (1) Check for perfect correlations between variables, (2) Ensure sufficient sample size, or (3) Simplify the model structure.")
+      }
+      
       list(ok = FALSE,
-           msg_friendly = "Estimation failed: possible perfect correlation (r = 1). Remove duplicate variables or merge them, then re-run.",
+           msg_friendly = paste0(friendly_msg, "\n\nTechnical details: ", error_msg),
            fit = NULL)
     })
-  }, ignoreNULL = FALSE)  # 初回自動実行
+  }, ignoreNULL = FALSE)  # Initial auto-execution
 
   output$fit_alert <- renderText({
     msg <- fit_model_safe()$msg_friendly
