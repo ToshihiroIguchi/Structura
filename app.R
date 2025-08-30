@@ -430,8 +430,10 @@ server <- function(input, output, session) {
           pred <- pred_vars[j]
           if (is.numeric(data[[pred]]) && dep != pred) {
             tryCatch({
-              fit <- lm(data[[dep]] ~ data[[pred]])
-              r2_matrix[i, j] <- summary(fit)$r.squared
+              # Use pairwise correlation for better handling of missing data
+              correlation <- cor(data[[dep]], data[[pred]], 
+                               use = "pairwise.complete.obs")
+              r2_matrix[i, j] <- correlation^2
             }, error = function(e) {
               r2_matrix[i, j] <- 0
             })
