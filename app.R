@@ -30,14 +30,14 @@ Sys.setlocale("LC_CTYPE", "ja_JP.UTF-8")
 # ---- Helper: Approximate Equations -----------------------------
 #   * Indicator  =  intercept + loading * Latent
 #   * Dependent  =  intercept + Σ( slope * Predictor )
-#   * 全て Raw (非標準化) 係数で生成
+#   * All coefficients are generated in raw (non-standardized) form
 # ----------------------------------------------------------------
 lavaan_to_equations <- function(fit, digits = 3) {
 
-  # ---- 係数取得（標準化しない） ------------------------------
+  # ---- Extract coefficients (non-standardized) ------------------------------
   pe <- parameterEstimates(fit, standardized = FALSE, remove.def = TRUE)
 
-  # ---- 数値フォーマッタ --------------------------------------
+  # ---- Number formatter --------------------------------------
   format_est <- function(x, digits = 3) {
     sapply(x, function(v) {
       if (is.na(v)) return("NA")
@@ -48,14 +48,14 @@ lavaan_to_equations <- function(fit, digits = 3) {
     })
   }
 
-  # ---- データフレーム分割 ------------------------------------
-  meas_df      <- pe[pe$op == "=~",  ]   # 測定方程式
-  reg_df       <- pe[pe$op == "~",   ]   # 構造方程式
-  intercept_df <- pe[pe$op == "~1",  ]   # 切片
+  # ---- Split dataframes ------------------------------------
+  meas_df      <- pe[pe$op == "=~",  ]   # Measurement equations
+  reg_df       <- pe[pe$op == "~",   ]   # Structural equations
+  intercept_df <- pe[pe$op == "~1",  ]   # Intercepts
 
   eq_lines <- character(0)
 
-  # ---------- 1. 測定方程式 ------------
+  # ---------- 1. Measurement equations ------------
   if (nrow(meas_df)) {
     for (i in seq_len(nrow(meas_df))) {
       ind     <- meas_df$rhs[i]                # Indicator
@@ -70,7 +70,7 @@ lavaan_to_equations <- function(fit, digits = 3) {
     }
   }
 
-  # ---------- 2. 構造方程式 ------------
+  # ---------- 2. Structural equations ------------
   if (nrow(reg_df)) {
     reg_split <- split(reg_df, reg_df$lhs)
     for (lhs in names(reg_split)) {
@@ -85,7 +85,7 @@ lavaan_to_equations <- function(fit, digits = 3) {
     }
   }
 
-  # ---------- 出力 ---------------------
+  # ---------- Output ---------------------
   eq_lines
 }
 
@@ -166,9 +166,14 @@ ui <- fluidPage(
                       actionButton("run_model", "Run / Update Model",
                                    class = "btn btn-success"),
                       tags$hr(),
-                      h4("Measurement Model"),
-                      rHandsontableOutput("input_table"),
-                      actionButton("add_row", "Add Row", class = "btn btn-primary"),
+                      tags$details(
+                        tags$summary(
+                          style = "cursor: pointer; list-style: none; margin-bottom: 10px;",
+                          h4("Measurement Model", style = "display: inline; margin: 0;")
+                        ),
+                        rHandsontableOutput("input_table"),
+                        actionButton("add_row", "Add Row", class = "btn btn-primary")
+                      ),
                       tags$hr(),
                       h4("Structural Model"),
                       p("Color intensity indicates R² strength (white: low, red: high). ",
@@ -176,13 +181,18 @@ ui <- fluidPage(
                         style = "font-size: 12px; color: #666; margin-bottom: 10px;"),
                       rHandsontableOutput("checkbox_matrix"),
                       tags$hr(),
-                      h4("Manual Equations"),
-                      textAreaInput("extra_eq",
-                                    "Additional lavaan syntax (one formula per line):",
-                                    value = "",
-                                    placeholder = "y1 ~ x1 + x2\nlatent2 =~ y3 + y4",
-                                    rows = 4,
-                                    resize = "vertical"),
+                      tags$details(
+                        tags$summary(
+                          style = "cursor: pointer; list-style: none; margin-bottom: 10px;",
+                          h4("Manual Equations", style = "display: inline; margin: 0;")
+                        ),
+                        textAreaInput("extra_eq",
+                                      "Additional lavaan syntax (one formula per line):",
+                                      value = "",
+                                      placeholder = "y1 ~ x1 + x2\nlatent2 =~ y3 + y4",
+                                      rows = 4,
+                                      resize = "vertical")
+                      ),
                       tags$hr(),
                       h4("lavaan Syntax"),
                       verbatimTextOutput("lavaan_model")
