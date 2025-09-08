@@ -443,7 +443,13 @@ server <- function(input, output, session) {
               # Use pairwise correlation for better handling of missing data
               correlation <- cor(data[[dep]], data[[pred]], 
                                use = "pairwise.complete.obs")
-              r2_matrix[i, j] <- correlation^2
+              # Handle NA or infinite correlation values
+              if (is.na(correlation) || !is.finite(correlation)) {
+                r2_matrix[i, j] <- 0
+              } else {
+                r2_val <- correlation^2
+                r2_matrix[i, j] <- ifelse(is.na(r2_val) || !is.finite(r2_val), 0, r2_val)
+              }
             }, error = function(e) {
               r2_matrix[i, j] <- 0
             })
@@ -457,25 +463,27 @@ server <- function(input, output, session) {
   # ---------- Structural table -----------------------------------
 
   output$checkbox_matrix <- renderRHandsontable({
-    df <- processed_data(); req(df)
-    deps <- as.character(input$display_columns %||% names(df))
-    meas <- input_table_data(); req(meas)
-    vars <- names(meas)[4:ncol(meas)]
-    row_has_indicator <- apply(meas[vars], 1, function(x) any(as.logical(x)))
-    convs <- setdiff(na.omit(unique(meas$Indicator[row_has_indicator])), "")
-    items <- unique(c(deps, convs))
-    if (!length(items)) return()
-    
-    # Compute R² matrix for color coding
-    r2_matrix <- compute_r2_matrix(df, items, items)
-    
-    mat   <- data.frame(Dependent = items, Operator = "~",
-                        stringsAsFactors = FALSE)
-    for (col in items) mat[[col]] <- FALSE
-    rh <- rhandsontable(mat, rowHeaders = FALSE) %>%
-      hot_table(highlightReadOnly = TRUE, fixedColumnsLeft = 2)
-    rh <- hot_col(rh, "Dependent", readOnly = TRUE)
-    rh <- hot_col(rh, "Operator",  readOnly = TRUE)
+    tryCatch({
+      df <- processed_data(); req(df)
+      deps <- as.character(input$display_columns %||% names(df))
+      meas <- input_table_data(); req(meas)
+      vars <- names(meas)[4:ncol(meas)]
+      row_has_indicator <- apply(meas[vars], 1, function(x) any(as.logical(x)))
+      convs <- setdiff(na.omit(unique(meas$Indicator[row_has_indicator])), "")
+      items <- unique(c(deps, convs))
+      if (!length(items)) return()
+      
+      # Compute R² matrix for color coding
+      r2_matrix <- compute_r2_matrix(df, items, items)
+      
+      mat   <- data.frame(Dependent = items, Operator = "~",
+                          stringsAsFactors = FALSE)
+      for (col in items) mat[[col]] <- FALSE
+      
+      rh <- rhandsontable(mat, rowHeaders = FALSE) %>%
+        hot_table(highlightReadOnly = TRUE, fixedColumnsLeft = 2)
+      rh <- hot_col(rh, "Dependent", readOnly = TRUE)
+      rh <- hot_col(rh, "Operator",  readOnly = TRUE)
     
     # Set diagonal cells as readOnly before applying renderers
     for (i in seq_along(items)) {
@@ -496,13 +504,16 @@ server <- function(input, output, session) {
         
         r2_val <- tryCatch({
           if (dep_var %in% rownames(r2_matrix) && col_name %in% colnames(r2_matrix)) {
-            r2_matrix[dep_var, col_name]
+            val <- r2_matrix[dep_var, col_name]
+            if (is.na(val) || !is.finite(val)) 0 else val
           } else {
             0
           }
         }, error = function(e) 0)
         
         # Create gradient: white (R²=0) to red (R²=1)
+        # Ensure r2_val is finite and in [0,1] range
+        r2_val <- ifelse(is.na(r2_val) || !is.finite(r2_val), 0, r2_val)
         red_intensity <- min(1, max(0, r2_val))
         rgb(1, 1 - red_intensity * 0.7, 1 - red_intensity * 0.7)
       })
@@ -529,6 +540,17 @@ server <- function(input, output, session) {
       rh <- hot_col(rh, col_name, type = "checkbox", renderer = renderer_js)
     }
     rh
+    }, error = function(e) {
+      # Return a simple error message table
+      error_mat <- data.frame(
+        Dependent = "Error",
+        Operator = "~",
+        Error = paste("Failed to load:", e$message),
+        stringsAsFactors = FALSE
+      )
+      rhandsontable(error_mat, rowHeaders = FALSE) %>%
+        hot_table(highlightReadOnly = TRUE)
+    })
   })
 
   # ---------- lavaan syntax --------------------------------------
