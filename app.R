@@ -353,19 +353,46 @@ server <- function(input, output, session) {
 
   output$display_column_ui <- renderUI({
     df <- processed_data(); req(df)
+    
+    # Identify columns with zero variance (constant columns)
+    numeric_cols <- sapply(df, is.numeric)
+    zero_var_cols <- names(df)[numeric_cols][sapply(df[numeric_cols], function(x) {
+      var_val <- var(x, na.rm = TRUE)
+      is.na(var_val) || var_val == 0
+    })]
+    
+    # Exclude zero variance columns from available choices
+    available_cols <- setdiff(names(df), zero_var_cols)
+    
+    # Set default selection from available columns only
     numeric_orig <- names(data())[sapply(data(), is.numeric)]
     logs <- if (!is.null(input$log_columns)) paste0("log_", input$log_columns) else NULL
-    default <- intersect(c(numeric_orig, logs), names(df))
-    checkboxGroupInput("display_columns", "Display columns:",
-                       choices = names(df), selected = default, inline = TRUE)
+    default <- intersect(c(numeric_orig, logs), available_cols)
+    
+    div(
+      checkboxGroupInput("display_columns", "Display columns:",
+                         choices = available_cols, selected = default, inline = TRUE),
+      if (length(zero_var_cols) > 0) {
+        div(style = "color: #666; font-size: 11px; margin-top: 5px;",
+            paste("Note: Excluded", length(zero_var_cols), "constant variable(s):",
+                  paste(zero_var_cols, collapse = ", ")))
+      }
+    )
   })
 
   output$filtered_table <- renderDT({
     df <- processed_data(); req(df)
     if (!is.null(input$display_columns))
       df <- df[, intersect(input$display_columns, names(df)), drop = FALSE]
-    datatable(df, editable = FALSE, options = list(pageLength = 10))
-  })
+    
+    # Round numeric columns to 3 decimal places for better display
+    numeric_cols <- sapply(df, is.numeric)
+    df[numeric_cols] <- lapply(df[numeric_cols], function(x) round(x, 3))
+    
+    datatable(df, filter = "top", editable = FALSE,
+              options = list(pageLength = 30, autoWidth = TRUE, scrollX = TRUE),
+              rownames = FALSE)
+  }, server = FALSE)
 
   output$corr_heatmap <- renderPlot({
     req(!is.null(input$display_columns))
